@@ -8,13 +8,14 @@ import {
   ScrollView,
   Image,
   StyleSheet,
+  ActivityIndicator,
   Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
-import { useRouter } from "expo-router";
-import { clearAuthData } from "../../utils/authStorage";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { clearAuthData, saveAuthData } from "../../utils/authStorage";
 import * as IntentLauncher from "expo-intent-launcher";
 import * as WebBrowser from "expo-web-browser";
 import { Platform } from "react-native";
@@ -78,8 +79,12 @@ export default function HomePage() {
   const [isImagePreviewVisible, setIsImagePreviewVisible] = useState(false);
   
   // Profile State
+  const params = useLocalSearchParams();
   const [userData, setUserData] = useState<UserData | null>(null);
   const [isProfileVisible, setIsProfileVisible] = useState(false);
+  const [isUsernameModalVisible, setIsUsernameModalVisible] = useState(false);
+  const [newUsername, setNewUsername] = useState("");
+  const [usernameLoading, setUsernameLoading] = useState(false);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -87,10 +92,54 @@ export default function HomePage() {
       if (user) {
         setUserData(user);
         setSharedFullName(user.fullName);
+        setNewUsername(user.username);
+        
+        // Show username modal ONLY if isNewUser param is present
+        if (params.isNewUser === 'true') {
+          setIsUsernameModalVisible(true);
+        }
       }
     };
     fetchUser();
-  }, []);
+  }, [params.isNewUser]);
+
+  const handleUpdateUsername = async () => {
+    if (!newUsername.trim()) {
+      Alert.alert("Error", "Username cannot be empty");
+      return;
+    }
+
+    setUsernameLoading(true);
+    try {
+      const { token } = await getAuthData();
+      const response = await fetch(`${API_URL}/auth/username`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-auth-token': token || '',
+        },
+        body: JSON.stringify({ username: newUsername }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        // Update local state
+        const updatedUser = { ...userData!, username: newUsername };
+        setUserData(updatedUser);
+        await saveAuthData(token || '', updatedUser);
+        setIsUsernameModalVisible(false);
+        Alert.alert("Success", "Username updated successfully!");
+      } else {
+        Alert.alert("Error", data.message || "Failed to update username");
+      }
+    } catch (error) {
+      console.error("Update username error:", error);
+      Alert.alert("Error", "An unexpected error occurred.");
+    } finally {
+      setUsernameLoading(false);
+    }
+  };
 
   const robohashUrl = userData ? `https://robohash.org/${userData.email}.png?set=set4` : null;
 
@@ -239,6 +288,52 @@ export default function HomePage() {
     >
       <ScrollView contentContainerStyle={styles.contentContainer}>
         {/* ── Header ── */}
+        {/* ── Username Choice Modal (For New Google Users) ── */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={isUsernameModalVisible}
+          onRequestClose={() => setIsUsernameModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.usernameModal}>
+              <View style={styles.usernameModalHeader}>
+                <UserCircle size={60} color="#1271dd" />
+                <Text style={styles.usernameModalTitle}>Choose your username</Text>
+                <Text style={styles.usernameModalSubtitle}>
+                  Welcome to printr! You've logged in with Google. Before you start, please pick a unique username.
+                </Text>
+              </View>
+
+              <View style={styles.usernameForm}>
+                <View style={styles.usernameInputWrapper}>
+                  <Text style={styles.atSymbol}>@</Text>
+                  <TextInput
+                    style={styles.usernameInput}
+                    placeholder="your_username"
+                    value={newUsername}
+                    onChangeText={setNewUsername}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </View>
+
+                <TouchableOpacity 
+                  style={[styles.usernameSubmitBtn, usernameLoading && { opacity: 0.7 }]}
+                  onPress={handleUpdateUsername}
+                  disabled={usernameLoading}
+                >
+                  {usernameLoading ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text style={styles.usernameSubmitText}>Continue</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
         {/* ── Profile Modal ── */}
         <Modal
           animationType="fade"
@@ -916,6 +1011,80 @@ const styles = StyleSheet.create({
   },
   profileDeleteText: {
     color: "#e31e1e",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  usernameModal: {
+    width: "90%",
+    maxWidth: 400,
+    backgroundColor: "#ffffff",
+    borderRadius: 24,
+    padding: 24,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  usernameModalHeader: {
+    alignItems: "center",
+    marginBottom: 24,
+  },
+  usernameModalTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#2e3563",
+    marginTop: 16,
+    textAlign: "center",
+  },
+  usernameModalSubtitle: {
+    fontSize: 14,
+    color: "#979797",
+    textAlign: "center",
+    marginTop: 8,
+    lineHeight: 20,
+  },
+  usernameForm: {
+    width: "100%",
+  },
+  usernameInputWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f8fbff",
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    borderWidth: 1.5,
+    borderColor: "#e3f0ff",
+    marginBottom: 24,
+  },
+  atSymbol: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#1271dd",
+    marginRight: 4,
+  },
+  usernameInput: {
+    flex: 1,
+    height: 56,
+    fontSize: 16,
+    color: "#2e3563",
+    fontWeight: "600",
+  },
+  usernameSubmitBtn: {
+    height: 56,
+    backgroundColor: "#1271dd",
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#1271dd",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  usernameSubmitText: {
+    color: "#ffffff",
     fontSize: 16,
     fontWeight: "700",
   },

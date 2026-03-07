@@ -233,6 +233,7 @@ router.post('/google', async (req, res) => {
 
     res.json({
       token,
+      isNewUser: userRes.rows.length === 0,
       user: {
         id: user.id,
         fullName: user.full_name,
@@ -244,6 +245,34 @@ router.post('/google', async (req, res) => {
   } catch (err) {
     console.error('Google Auth Error:', err.message);
     res.status(400).json({ message: "Google authentication failed: " + err.message });
+  }
+});
+
+// Update username
+router.put('/username', auth, async (req, res) => {
+  const { username } = req.body;
+
+  try {
+    if (!username || username.trim() === '') {
+      return res.status(400).json({ message: "Username cannot be empty" });
+    }
+
+    // Check if new username is already taken
+    const checkRes = await db.query('SELECT * FROM users WHERE username = $1', [username]);
+    if (checkRes.rows.length > 0) {
+      // If it belongs to someone else
+      if (checkRes.rows[0].id !== req.user.id) {
+        return res.status(400).json({ message: "Username already taken" });
+      }
+    }
+
+    // Update username
+    await db.query('UPDATE users SET username = $1 WHERE id = $2', [username, req.user.id]);
+    
+    res.json({ message: "Username updated successfully", username });
+  } catch (err) {
+    console.error('Update Username Error:', err.message);
+    res.status(500).json({ message: "Server error" });
   }
 });
 

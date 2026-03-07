@@ -33,9 +33,8 @@ export default function SignUp() {
  
      // Google Auth Logic
      const [request, response, promptAsync] = Google.useAuthRequest({
-          androidClientId: "GOOGLE_ANDROID_CLIENT_ID", // Placeholder: User needs to provide this
-          iosClientId: "GOOGLE_IOS_CLIENT_ID",         // Placeholder: User needs to provide this
-          webClientId: "GOOGLE_WEB_CLIENT_ID",         // Placeholder: User needs to provide this
+          androidClientId: "867737780609-dlsfkp8cu219mq4q6pd0h00ol1ghmkg0.apps.googleusercontent.com",
+          webClientId: "867737780609-1nfo8r9eimq0tsj88orgumiaa635sgfb.apps.googleusercontent.com",
      });
 
      useEffect(() => {
@@ -62,9 +61,14 @@ export default function SignUp() {
                     throw new Error(data.message || "Google registration failed");
                }
 
-               setSharedFullName(data.user.fullName);
-               await saveAuthData(data.token, data.user);
-               router.replace("/home");
+                setSharedFullName(data.user.fullName);
+                await saveAuthData(data.token, data.user);
+                
+                if (data.isNewUser) {
+                  router.replace({ pathname: "/home", params: { isNewUser: 'true' } } as any);
+                } else {
+                  router.replace("/home");
+                }
           } catch (error: any) {
                console.error("Google Auth error:", error);
                Alert.alert("Registration Failed", error.message);
