@@ -1,5 +1,5 @@
 const { Pool } = require('pg');
-require('dotenv').config({ path: 'd:/Printr/Printr_Mobile/backend/.env' });
+require('dotenv').config({ path: './.env' });
 
 const pool = new Pool({
   user: process.env.DB_USER,
