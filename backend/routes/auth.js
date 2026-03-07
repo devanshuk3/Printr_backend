@@ -6,25 +6,31 @@ const db = require('../db');
 
 // Register
 router.post('/register', async (req, res) => {
-  const { fullName, email, password } = req.body;
+  const { fullName, email, username, password } = req.body;
 
   try {
     // Basic validation
-    if (!fullName || !email || !password) {
+    if (!fullName || !email || !username || !password) {
       return res.status(400).json({ message: "Please enter all fields" });
     }
 
-    // Check if user exists
+    // Check if user exists (email or username)
     let userRes;
     try {
-      userRes = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+      userRes = await db.query('SELECT * FROM users WHERE email = $1 OR username = $2', [email, username]);
     } catch (dbErr) {
       console.error('Database query error (check user):', dbErr.message);
       return res.status(500).json({ message: "Database Error: " + dbErr.message });
     }
 
     if (userRes.rows.length > 0) {
-      return res.status(400).json({ message: "User already exists" });
+      const existingUser = userRes.rows[0];
+      if (existingUser.email === email) {
+        return res.status(400).json({ message: "Email already exists" });
+      }
+      if (existingUser.username === username) {
+        return res.status(400).json({ message: "Username already taken" });
+      }
     }
 
     // Hash password
@@ -35,8 +41,8 @@ router.post('/register', async (req, res) => {
     let newUser;
     try {
       newUser = await db.query(
-        'INSERT INTO users (full_name, email, password) VALUES ($1, $2, $3) RETURNING id, full_name, email',
-        [fullName, email, hashedPassword]
+        'INSERT INTO users (full_name, email, username, password) VALUES ($1, $2, $3, $4) RETURNING id, full_name, email, username',
+        [fullName, email, username, hashedPassword]
       );
     } catch (dbErr) {
       console.error('Database insert error:', dbErr.message);
@@ -60,7 +66,8 @@ router.post('/register', async (req, res) => {
       user: {
         id: newUser.rows[0].id,
         fullName: newUser.rows[0].full_name,
-        email: newUser.rows[0].email
+        email: newUser.rows[0].email,
+        username: newUser.rows[0].username
       }
     });
 
@@ -72,15 +79,18 @@ router.post('/register', async (req, res) => {
 
 // Login
 router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
+  const { identifier, password } = req.body; // 'identifier' can be email or username
 
   try {
-    if (!email || !password) {
+    if (!identifier || !password) {
       return res.status(400).json({ message: "Please enter all fields" });
     }
 
-    // Check for user
-    const userRes = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+    // Check for user (by email or username)
+    const userRes = await db.query(
+      'SELECT * FROM users WHERE email = $1 OR username = $1',
+      [identifier]
+    );
     if (userRes.rows.length === 0) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
@@ -109,7 +119,8 @@ router.post('/login', async (req, res) => {
       user: {
         id: user.id,
         fullName: user.full_name,
-        email: user.email
+        email: user.email,
+        username: user.username
       }
     });
 
@@ -123,7 +134,7 @@ router.post('/login', async (req, res) => {
 const auth = require('../middleware/auth');
 router.get('/verify', auth, async (req, res) => {
   try {
-    const userRes = await db.query('SELECT id, full_name, email FROM users WHERE id = $1', [req.user.id]);
+    const userRes = await db.query('SELECT id, full_name, email, username FROM users WHERE id = $1', [req.user.id]);
     
     if (userRes.rows.length === 0) {
       return res.status(404).json({ message: "User not found" });
@@ -143,12 +154,29 @@ router.get('/verify', auth, async (req, res) => {
       user: {
         id: user.id,
         fullName: user.full_name,
-        email: user.email
+        email: user.email,
+        username: user.username
       }
     });
 
   } catch (err) {
     console.error('Verify Error:', err.message);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Delete account
+router.delete('/account', auth, async (req, res) => {
+  try {
+    const result = await db.query('DELETE FROM users WHERE id = $1', [req.user.id]);
+    
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json({ message: "Account deleted successfully" });
+  } catch (err) {
+    console.error('Delete Account Error:', err.message);
     res.status(500).json({ message: "Server error" });
   }
 });
