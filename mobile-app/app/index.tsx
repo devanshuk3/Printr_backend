@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { View, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
-import { Frame as LoginFrame } from "./(auth)/login";
+import LoginPage from "./(auth)/login";
 import { getAuthData } from "../utils/authStorage";
-import { setSharedFullName } from "./(auth)/signup";
+import { setSharedFullName } from "../utils/sharedState";
 import { API_URL } from "../constants/apiConfig";
 import { clearAuthData, saveAuthData } from "../utils/authStorage";
 
@@ -54,5 +54,5 @@ export default function Index() {
     );
   }
 
-  return <LoginFrame />;
+  return <LoginPage />;
 }

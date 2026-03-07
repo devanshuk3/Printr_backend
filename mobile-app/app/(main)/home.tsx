@@ -1,5 +1,5 @@
 import React, { JSX, useState, useEffect } from "react";
-import { sharedFullName, setSharedFullName } from "../(auth)/signup";
+import { sharedFullName, setSharedFullName } from "../../utils/sharedState";
 import {
   View,
   Text,

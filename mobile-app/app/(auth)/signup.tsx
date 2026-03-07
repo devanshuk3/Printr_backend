@@ -21,10 +21,7 @@ import { FloatingLabelInput } from "../../components/ui/FloatingLabelInput";
 import { API_URL } from "../../constants/apiConfig";
 import { saveAuthData } from "../../utils/authStorage";
 
-export let sharedFullName = "User";
-export const setSharedFullName = (name: string) => {
-     sharedFullName = name;
-};
+import { setSharedFullName } from "../../utils/sharedState";
 
 export default function SignUp() {
      const router = useRouter();
@@ -142,7 +139,7 @@ export default function SignUp() {
                               <Text style={styles.title}>Create an account</Text>
                               <Text style={styles.subtitle}>
                                    {"Already have an account? "}
-                                   <Text style={styles.loginLink} onPress={() => router.back()}>Login</Text>
+                                   <Text style={styles.loginLink} onPress={() => router.replace("/")}>Login</Text>
                               </Text>
                          </View>
                          {/* Form */}

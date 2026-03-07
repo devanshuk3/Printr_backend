@@ -20,11 +20,11 @@ import { useRouter } from "expo-router";
 import { PasswordInput } from "../../components/ui/PasswordInput";
 import { FloatingLabelInput } from "../../components/ui/FloatingLabelInput";
 import { API_URL } from "../../constants/apiConfig";
-import { setSharedFullName } from "./signup";
+import { setSharedFullName } from "../../utils/sharedState";
 import { saveAuthData } from "../../utils/authStorage";
 import { Check } from "lucide-react-native";
 
-export const Frame = () => {
+const LoginPage = () => {
   const router = useRouter();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -399,4 +399,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default Frame;
+export default LoginPage;
