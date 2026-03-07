@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
-import * as Google from 'expo-auth-session/providers/google';
-import * as WebBrowser from 'expo-web-browser';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
-WebBrowser.maybeCompleteAuthSession();
+GoogleSignin.configure({
+  webClientId: '867737780609-1nfo8r9eimq0tsj88orgumiaa635sgfb.apps.googleusercontent.com',
+  offlineAccess: true,
+});
 import {
   View,
   Text,
@@ -31,18 +33,23 @@ const LoginPage = () => {
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
  
-  // Google Auth Logic
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    androidClientId: "867737780609-dlsfkp8cu219mq4q6pd0h00ol1ghmkg0.apps.googleusercontent.com",
-    webClientId: "867737780609-1nfo8r9eimq0tsj88orgumiaa635sgfb.apps.googleusercontent.com",
-  });
-
-  useEffect(() => {
-    if (response?.type === 'success') {
-      const { id_token } = response.params;
-      handleGoogleLogin(id_token);
+  const promptAsync = async () => {
+    try {
+      setLoading(true);
+      await GoogleSignin.hasPlayServices();
+      const userInfo = await GoogleSignin.signIn();
+      if (userInfo.data?.idToken) {
+        handleGoogleLogin(userInfo.data.idToken);
+      } else {
+        throw new Error("No ID Token found. Please check your Google Cloud Console configuration.");
+      }
+    } catch (error: any) {
+      console.error("Native Google Login error:", error);
+      Alert.alert("Login Failed", "Could not complete native Google Sign-In. Error code: " + error.code);
+    } finally {
+      setLoading(false);
     }
-  }, [response]);
+  };
 
   const handleGoogleLogin = async (idToken: string) => {
     setLoading(true);
@@ -210,10 +217,10 @@ const LoginPage = () => {
 
           {/* Google Button */}
           <TouchableOpacity 
-            style={[styles.googleButton, (!request || loading) && { opacity: 0.7 }]} 
+            style={[styles.googleButton, loading && { opacity: 0.7 }]} 
             activeOpacity={0.85}
-            onPress={() => promptAsync()}
-            disabled={!request || loading}
+            onPress={promptAsync}
+            disabled={loading}
           >
             {loading ? (
               <ActivityIndicator color="#4285F4" />
