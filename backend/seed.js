@@ -1,6 +1,6 @@
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
-require('dotenv').config({ path: 'd:/Printr/Printr_Mobile/mobile-backend/.env' });
+require('dotenv').config({ path: 'd:/Printr/Printr_Mobile/backend/.env' });
 
 const pool = new Pool({
   user: process.env.DB_USER,

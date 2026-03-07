@@ -3,6 +3,8 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../db');
+const { OAuth2Client } = require('google-auth-library');
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Register
 router.post('/register', async (req, res) => {
@@ -178,6 +180,70 @@ router.delete('/account', auth, async (req, res) => {
   } catch (err) {
     console.error('Delete Account Error:', err.message);
     res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Google Login
+router.post('/google', async (req, res) => {
+  const { idToken } = req.body;
+
+  try {
+    if (!process.env.GOOGLE_CLIENT_ID) {
+      return res.status(500).json({ message: "Server Error: Google Client ID is missing" });
+    }
+
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    const { email, name } = payload;
+
+    // Check if user exists
+    let userRes = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+    let user;
+
+    if (userRes.rows.length === 0) {
+      // Create new user if they don't exist
+      let username = email.split('@')[0];
+      
+      // Check if username exists, if so append something
+      const checkUsername = await db.query('SELECT * FROM users WHERE username = $1', [username]);
+      if (checkUsername.rows.length > 0) {
+        username = `${username}_${Math.floor(Math.random() * 1000)}`;
+      }
+
+      // Insert with dummy password as social users don't need one
+      const newUser = await db.query(
+        'INSERT INTO users (full_name, email, username, password) VALUES ($1, $2, $3, $4) RETURNING id, full_name, email, username',
+        [name, email, username, 'GOOGLE_AUTH_USER']
+      );
+      user = newUser.rows[0];
+    } else {
+      user = userRes.rows[0];
+    }
+
+    // Create token
+    const token = jwt.sign(
+      { id: user.id },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        fullName: user.full_name,
+        email: user.email,
+        username: user.username
+      }
+    });
+
+  } catch (err) {
+    console.error('Google Auth Error:', err.message);
+    res.status(400).json({ message: "Google authentication failed: " + err.message });
   }
 });
 
