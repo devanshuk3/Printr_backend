@@ -15,7 +15,14 @@ router.post('/register', async (req, res) => {
     }
 
     // Check if user exists
-    const userRes = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+    let userRes;
+    try {
+      userRes = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+    } catch (dbErr) {
+      console.error('Database query error (check user):', dbErr.message);
+      return res.status(500).json({ message: "Database Error: " + dbErr.message });
+    }
+
     if (userRes.rows.length > 0) {
       return res.status(400).json({ message: "User already exists" });
     }
@@ -25,12 +32,23 @@ router.post('/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, salt);
 
     // Insert user
-    const newUser = await db.query(
-      'INSERT INTO users (full_name, email, password) VALUES ($1, $2, $3) RETURNING id, full_name, email',
-      [fullName, email, hashedPassword]
-    );
+    let newUser;
+    try {
+      newUser = await db.query(
+        'INSERT INTO users (full_name, email, password) VALUES ($1, $2, $3) RETURNING id, full_name, email',
+        [fullName, email, hashedPassword]
+      );
+    } catch (dbErr) {
+      console.error('Database insert error:', dbErr.message);
+      return res.status(500).json({ message: "Database Insertion Error: " + dbErr.message });
+    }
 
     // Create token
+    if (!process.env.JWT_SECRET) {
+      console.error('JWT_SECRET missing in environment');
+      return res.status(500).json({ message: "Server Error: JWT Secret is missing" });
+    }
+
     const token = jwt.sign(
       { id: newUser.rows[0].id },
       process.env.JWT_SECRET,
@@ -43,8 +61,8 @@ router.post('/register', async (req, res) => {
     });
 
   } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ message: "Server error" });
+    console.error('Fatal Signup Error:', err.message);
+    res.status(500).json({ message: "Internal Server Error: " + err.message });
   }
 });
 
@@ -72,6 +90,10 @@ router.post('/login', async (req, res) => {
     }
 
     // Create token
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({ message: "Server Error: JWT Secret is missing" });
+    }
+
     const token = jwt.sign(
       { id: user.id },
       process.env.JWT_SECRET,
@@ -88,8 +110,8 @@ router.post('/login', async (req, res) => {
     });
 
   } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ message: "Server error" });
+    console.error('Login Error:', err.message);
+    res.status(500).json({ message: "Server error: " + err.message });
   }
 });
 
