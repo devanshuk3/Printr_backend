@@ -1,0 +1,21 @@
+Privacy Policy for Printr
+
+Last Updated: March 7, 2026
+
+1. Information We Collect
+We collect information you provide directly to us when you create an account, such as your full name, email address, and username.
+
+2. How We Use Your Information
+We use your information to:
+- Provide, maintain, and improve our services.
+- Authenticate your identity and manage your account.
+- Communicate with you about technical notices, updates, and security alerts.
+
+3. Data Security
+We implement robust security measures to protect your data from unauthorized access or disclosure.
+
+4. Your Rights
+You have the right to access, correct, or delete your account information at any time through the application settings.
+
+5. Contact Us
+If you have any questions about this Privacy Policy, please contact us at support.printr@gmail.com.
