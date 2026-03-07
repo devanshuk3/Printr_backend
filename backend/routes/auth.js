@@ -52,12 +52,16 @@ router.post('/register', async (req, res) => {
     const token = jwt.sign(
       { id: newUser.rows[0].id },
       process.env.JWT_SECRET,
-      { expiresIn: '1h' }
+      { expiresIn: '7d' }
     );
 
     res.json({
       token,
-      user: newUser.rows[0]
+      user: {
+        id: newUser.rows[0].id,
+        fullName: newUser.rows[0].full_name,
+        email: newUser.rows[0].email
+      }
     });
 
   } catch (err) {
@@ -97,7 +101,7 @@ router.post('/login', async (req, res) => {
     const token = jwt.sign(
       { id: user.id },
       process.env.JWT_SECRET,
-      { expiresIn: '1h' }
+      { expiresIn: '7d' }
     );
 
     res.json({
@@ -112,6 +116,40 @@ router.post('/login', async (req, res) => {
   } catch (err) {
     console.error('Login Error:', err.message);
     res.status(500).json({ message: "Server error: " + err.message });
+  }
+});
+
+// Verify current session
+const auth = require('../middleware/auth');
+router.get('/verify', auth, async (req, res) => {
+  try {
+    const userRes = await db.query('SELECT id, full_name, email FROM users WHERE id = $1', [req.user.id]);
+    
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const user = userRes.rows[0];
+
+    // Create a NEW token to extend the session (resetting the 7-day timer)
+    const token = jwt.sign(
+      { id: user.id },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        fullName: user.full_name,
+        email: user.email
+      }
+    });
+
+  } catch (err) {
+    console.error('Verify Error:', err.message);
+    res.status(500).json({ message: "Server error" });
   }
 });
 
