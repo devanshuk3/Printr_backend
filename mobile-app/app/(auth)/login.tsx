@@ -37,6 +37,12 @@ const LoginPage = () => {
     try {
       setLoading(true);
       await GoogleSignin.hasPlayServices();
+      // Force account selection every time by signing out of any previous session
+      try {
+        await GoogleSignin.signOut();
+      } catch (e) {
+        // Ignore catch if no user was signed in
+      }
       const userInfo = await GoogleSignin.signIn();
       if (userInfo.data?.idToken) {
         handleGoogleLogin(userInfo.data.idToken);

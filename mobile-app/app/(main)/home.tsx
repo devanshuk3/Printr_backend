@@ -141,7 +141,7 @@ export default function HomePage() {
     }
   };
 
-  const robohashUrl = userData ? `https://robohash.org/${userData.email}.png?set=set4` : null;
+  const robohashUrl = userData ? `https://robohash.org/${userData.username || userData.id}.png` : null;
 
   const handleDeleteAccount = async () => {
     Alert.alert(

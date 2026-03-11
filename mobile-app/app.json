@@ -51,8 +51,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "7d434548-20af-44e0-8e4e-919d3fe6768d"
+        "projectId": "67dc549d-f0b6-4fc4-94f1-cb914788d531"
       }
-    }
+    },
+    "owner": "devanshuk3"
   }
 }

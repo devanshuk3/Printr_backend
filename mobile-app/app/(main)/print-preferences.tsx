@@ -5,8 +5,13 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Plus, Minus, ChevronLeft, FileText, Hash } from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useEffect } from 'react';
-
-const PrintSettings = () => {
+// Import Share dynamically or handle missing native modules in Expo Go
+let Share: any;
+try {
+  Share = require('react-native-share').default;
+} catch (e) {
+  console.warn("native modules are not available in Expo Go.");
+}const PrintSettings = () => {
      const router = useRouter();
      const { files } = useLocalSearchParams<{ files: string }>();
      const uploadedFiles = files ? JSON.parse(files) as Array<{ uri: string, name: string, mimeType: string }> : [];
@@ -92,10 +97,77 @@ const PrintSettings = () => {
           </View>
      );
 
-     const handleCheckout = () => {
-          Alert.alert("Print Order", "Your print job has been sent to the printer successfully.", [
-               { text: "OK", onPress: () => router.replace("/home") }
-          ]);
+     const handleCheckout = async () => {
+          if (uploadedFiles.length === 0) {
+               Alert.alert("Error", "No files selected to print.");
+               return;
+          }
+
+          try {
+               // Must be built with dev client for react-native-share
+               if (!Share) {
+                    Alert.alert(
+                         "Native Module Required", 
+                         "WhatsApp sharing needs a custom native build. Please exit Expo Go and compile the app using 'npx expo run:android'."
+                    );
+                    return;
+               }
+
+               // 1. Generate unique job ID prefixed with "job_"
+               const shortId = Math.random().toString(36).substring(2, 6) + Date.now().toString(36).substring(4, 8);
+               const jobId = `job_${shortId}`;
+
+               // 2. Generate JSON configuration
+               const printConfig = {
+                    job_id: jobId,
+                    vendor_id: "test123",
+                    copies: copies,
+                    paper_size: "A4", // Defaulting as specific requirement logic doesn't collect paper size
+                    orientation: formData.layout,
+                    color: formData.colorMode
+               };
+
+               const jsonString = JSON.stringify(printConfig, null, 2);
+               // 4. Create temporarily on the device storage
+               const jsonFilePath = `${FileSystem.cacheDirectory}${jobId}.json`;
+               
+               // Save JSON locally using Expo FileSystem
+               await FileSystem.writeAsStringAsync(jsonFilePath, jsonString, { encoding: FileSystem.EncodingType.UTF8 });
+
+               // Rename original files to match job id temporarily
+               const renamedFiles = [];
+               for (let i = 0; i < uploadedFiles.length; i++) {
+                    const file = uploadedFiles[i];
+                    const extMatch = file.name.match(/\.[0-9a-z]+$/i);
+                    const ext = extMatch ? extMatch[0] : '.pdf';
+                    // Append index if multiple files exist
+                    const fileSuffix = uploadedFiles.length > 1 ? `_${i + 1}` : '';
+                    const renamedPath = `${FileSystem.cacheDirectory}${jobId}${fileSuffix}${ext}`;
+                    
+                    await FileSystem.copyAsync({
+                         from: file.uri,
+                         to: renamedPath,
+                    });
+                    renamedFiles.push(renamedPath);
+               }
+
+               const fileUrls = [jsonFilePath, ...renamedFiles].map(path => `file://${path}`);
+
+               // 6. Open WhatsApp to vendor with the files attached
+               const shareOptions = {
+                    title: 'Send Print Job',
+                    social: Share.Social.WHATSAPP,
+                    whatsAppNumber: '917727991673',
+                    urls: fileUrls, 
+                    type: '*/*', // Force WhatsApp to treat all files as documents
+                    failOnCancel: false,
+               };
+
+               await Share.shareSingle(shareOptions as any);
+          } catch (error) {
+               console.error("Print share error:", error);
+               Alert.alert("Error", "Could not open WhatsApp or attach files. Make sure WhatsApp is installed.");
+          }
      };
 
      return (

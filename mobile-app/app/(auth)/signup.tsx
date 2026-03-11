@@ -32,11 +32,17 @@ export default function SignUp() {
      const [username, setUsername] = useState("");
      const [password, setPassword] = useState("");
      const [loading, setLoading] = useState(false);
- 
+
      const promptAsync = async () => {
           try {
                setLoading(true);
                await GoogleSignin.hasPlayServices();
+               // Force account selection every time by signing out of any previous session
+               try {
+                    await GoogleSignin.signOut();
+               } catch (e) {
+                    // Ignore catch if no user was signed in
+               }
                const userInfo = await GoogleSignin.signIn();
                if (userInfo.data?.idToken) {
                     handleGoogleSignup(userInfo.data.idToken);
@@ -68,14 +74,14 @@ export default function SignUp() {
                     throw new Error(data.message || "Google registration failed");
                }
 
-                setSharedFullName(data.user.fullName);
-                await saveAuthData(data.token, data.user);
-                
-                if (data.isNewUser) {
-                  router.replace({ pathname: "/home", params: { isNewUser: 'true' } } as any);
-                } else {
-                  router.replace("/home");
-                }
+               setSharedFullName(data.user.fullName);
+               await saveAuthData(data.token, data.user);
+
+               if (data.isNewUser) {
+                    router.replace({ pathname: "/home", params: { isNewUser: 'true' } } as any);
+               } else {
+                    router.replace("/home");
+               }
           } catch (error: any) {
                console.error("Google Auth error:", error);
                Alert.alert("Registration Failed", error.message);
@@ -83,7 +89,7 @@ export default function SignUp() {
                setLoading(false);
           }
      };
- 
+
      const handleSignUp = async () => {
           if (!fullName.trim() || !email.trim() || !username.trim() || !password.trim()) {
                Alert.alert("Error", "Please fill in all fields");
@@ -107,30 +113,30 @@ export default function SignUp() {
 
                const contentType = response.headers.get("content-type");
                let data;
-               
+
                if (contentType && contentType.includes("application/json")) {
-                 data = await response.json();
+                    data = await response.json();
                } else {
-                 const text = await response.text();
-                 throw new Error(text || "Server returned an invalid response");
+                    const text = await response.text();
+                    throw new Error(text || "Server returned an invalid response");
                }
 
                if (!response.ok) {
                     throw new Error(data.message || "Something went wrong");
                }
 
-                // Successfully registered
-                setSharedFullName(data.user.fullName); 
-                
-                // Save session to persistent storage
-                await saveAuthData(data.token, {
-                  id: data.user.id,
-                  fullName: data.user.fullName,
-                  email: data.user.email,
-                  username: data.user.username
-                });
-                
-                router.replace("/home");
+               // Successfully registered
+               setSharedFullName(data.user.fullName);
+
+               // Save session to persistent storage
+               await saveAuthData(data.token, {
+                    id: data.user.id,
+                    fullName: data.user.fullName,
+                    email: data.user.email,
+                    username: data.user.username
+               });
+
+               router.replace("/home");
           } catch (error: any) {
                console.error("Signup error:", error);
                Alert.alert("Registration Failed", error.message);
@@ -140,7 +146,7 @@ export default function SignUp() {
      };
 
      return (
-          <SafeAreaView style={styles.scrollView} edges={['top', 'left', 'right', 'bottom']}>    
+          <SafeAreaView style={styles.scrollView} edges={['top', 'left', 'right', 'bottom']}>
                <ScrollView
                     contentContainerStyle={styles.container}
                >
@@ -192,18 +198,18 @@ export default function SignUp() {
                               />
 
                               {/* Sign Up Button */}
-                               <TouchableOpacity
-                                    style={[styles.signupButton, loading && { opacity: 0.7 }]}
-                                    activeOpacity={0.85}
-                                    onPress={handleSignUp}
-                                    disabled={loading}
-                               >
-                                    {loading ? (
-                                         <ActivityIndicator color="#ffffff" />
-                                    ) : (
-                                         <Text style={styles.signupButtonText}>Sign Up</Text>
-                                    )}
-                               </TouchableOpacity>
+                              <TouchableOpacity
+                                   style={[styles.signupButton, loading && { opacity: 0.7 }]}
+                                   activeOpacity={0.85}
+                                   onPress={handleSignUp}
+                                   disabled={loading}
+                              >
+                                   {loading ? (
+                                        <ActivityIndicator color="#ffffff" />
+                                   ) : (
+                                        <Text style={styles.signupButtonText}>Sign Up</Text>
+                                   )}
+                              </TouchableOpacity>
                          </View>
 
                          {/* Separator */}
@@ -214,8 +220,8 @@ export default function SignUp() {
                          </View>
 
                          {/* Google Button */}
-                         <TouchableOpacity 
-                              style={[styles.googleButton, loading && { opacity: 0.7 }]} 
+                         <TouchableOpacity
+                              style={[styles.googleButton, loading && { opacity: 0.7 }]}
                               activeOpacity={0.85}
                               onPress={promptAsync}
                               disabled={loading}
