@@ -34,7 +34,8 @@ import {
   Trash2,
   User,
   Mail,
-  UserCircle
+  UserCircle,
+  LayoutDashboard
 } from "lucide-react-native";
 import { getAuthData, UserData } from "../../utils/authStorage";
 import { Modal } from 'react-native';
@@ -77,6 +78,9 @@ export default function HomePage() {
   const [uploadedFiles, setUploadedFiles] = useState<Array<{ uri: string, name: string, mimeType: string }>>([]);
   const [activePreviewFile, setActivePreviewFile] = useState<{ uri: string, mimeType: string } | null>(null);
   const [isImagePreviewVisible, setIsImagePreviewVisible] = useState(false);
+  const [verifiedVendor, setVerifiedVendor] = useState<any>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [totalPages, setTotalPages] = useState<number>(0);
   
   // Profile State
   const params = useLocalSearchParams();
@@ -141,6 +145,42 @@ export default function HomePage() {
     }
   };
 
+  const handleVerifyVendor = async () => {
+    if (!vendorId.trim()) {
+      Alert.alert("Error", "Please enter a Vendor ID");
+      return;
+    }
+
+    setIsVerifying(true);
+    try {
+      const response = await fetch(`${API_URL}/vendors/verify/${vendorId}`);
+      const contentType = response.headers.get("content-type");
+      
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await response.text();
+        console.error("API returned non-JSON response:", text.substring(0, 200));
+        throw new Error("Server returned an invalid response (HTML). Please ensure the backend is running and updated.");
+      }
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setVerifiedVendor(data);
+        // Default total pages to Number of files if not already set
+        if (totalPages === 0) setTotalPages(uploadedFiles.length || 1);
+        Alert.alert("Success", `Vendor: ${data.name} verified!`);
+      } else {
+        setVerifiedVendor(null);
+        Alert.alert("Error", data.message || "Vendor not found");
+      }
+    } catch (error: any) {
+      console.error("Verify Vendor Error:", error);
+      Alert.alert("Error", error.message || "Could not verify vendor. Please try again.");
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
   const robohashUrl = userData ? `https://robohash.org/${userData.username || userData.id}.png` : null;
 
   const handleDeleteAccount = async () => {
@@ -183,12 +223,36 @@ export default function HomePage() {
   const handleUpload = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: "*/*",
+        // Standard printable formats
+        type: [
+          "application/pdf",
+          "image/jpeg",
+          "image/png",
+          "image/jpg",
+          "application/msword",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ],
         multiple: true,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const newFiles = await Promise.all(result.assets.map(async (asset) => {
+        const filteredAssets = result.assets.filter(asset => {
+          const mime = asset.mimeType?.toLowerCase() || "";
+          const name = asset.name.toLowerCase();
+          
+          // Explicitly block GIFs and Videos if they somehow bypassed the picker filter
+          if (mime === "image/gif" || mime.startsWith("video/") || name.endsWith(".gif") || name.endsWith(".mp4")) {
+            return false;
+          }
+          return true;
+        });
+
+        if (filteredAssets.length === 0) {
+          Alert.alert("Invalid File", "Videos and GIFs are not supported for printing.");
+          return;
+        }
+
+        const newFiles = await Promise.all(filteredAssets.map(async (asset) => {
           const fileName = asset.name;
           const destinationUri = (FileSystem.documentDirectory || "") + fileName;
 
@@ -206,7 +270,12 @@ export default function HomePage() {
 
         setUploadedFiles(prev => [...prev, ...newFiles]);
         setHasUploaded(true);
-        Alert.alert("Success", `${newFiles.length} file(s) added.`);
+        
+        if (filteredAssets.length < result.assets.length) {
+          Alert.alert("Notice", `Some files were excluded. Only PDF, JPEG, PNG, and Word docs are allowed.`);
+        } else {
+          Alert.alert("Success", `${newFiles.length} file(s) added.`);
+        }
       }
     } catch (err) {
       console.error("Error picking/storing document:", err);
@@ -385,6 +454,23 @@ export default function HomePage() {
                   </View>
                 </View>
 
+                <TouchableOpacity
+                  style={styles.profileLogoutBtn}
+                  onPress={() => {
+                    const params = {
+                      files: JSON.stringify(uploadedFiles),
+                      vendorId: verifiedVendor?.vendor_id || "",
+                      vendorPhone: verifiedVendor?.phone || ""
+                    };
+                    router.push({
+                      pathname: "/(main)/print-preferences",
+                      params
+                    });
+                  }}
+                >
+                  <Text style={styles.profileLogoutText}>PRINT NOW</Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity 
                   style={styles.profileLogoutBtn}
                   onPress={async () => {
@@ -424,6 +510,14 @@ export default function HomePage() {
               {"Welcome,\n" + sharedFullName}
             </Text>
             <View style={styles.headerIcons}>
+              {userData?.username === "admin" && (
+                <TouchableOpacity 
+                  style={[styles.iconCircle, { backgroundColor: '#1271dd', borderColor: '#1271dd' }]}
+                  onPress={() => router.push("/(admin)/vendors")}
+                >
+                  <LayoutDashboard size={20} color="#ffffff" />
+                </TouchableOpacity>
+              )}
               <TouchableOpacity 
                 style={styles.profileIconCircle}
                 onPress={() => setIsProfileVisible(true)}
@@ -466,9 +560,45 @@ export default function HomePage() {
               onChangeText={setVendorId}
             />
           </View>
-          <TouchableOpacity style={styles.verifyButton} activeOpacity={0.85}>
-            <Text style={styles.verifyButtonText}>Verify</Text>
+          <TouchableOpacity 
+            style={[styles.verifyButton, isVerifying && { opacity: 0.7 }]} 
+            onPress={handleVerifyVendor}
+            disabled={isVerifying}
+            activeOpacity={0.85}
+          >
+            {isVerifying ? (
+              <ActivityIndicator color="#ffffff" size="small" />
+            ) : (
+              <Text style={styles.verifyButtonText}>Verify</Text>
+            )}
           </TouchableOpacity>
+
+          {verifiedVendor && (
+            <View style={styles.vendorInfoCard}>
+              <View style={styles.vendorInfoHeader}>
+                <Text style={styles.vendorInfoName}>{verifiedVendor.name}</Text>
+                <View style={styles.vendorPriceBadge}>
+                  <Text style={styles.vendorPriceText}>₹{verifiedVendor.price_per_page}/page</Text>
+                </View>
+              </View>
+              
+              <View style={styles.pricingCalculator}>
+                <View style={styles.pageInputContainer}>
+                  <Text style={styles.pricingLabel}>Total Pages</Text>
+                  <TextInput
+                    style={styles.pageInput}
+                    keyboardType="numeric"
+                    value={totalPages.toString()}
+                    onChangeText={(text) => setTotalPages(parseInt(text) || 0)}
+                  />
+                </View>
+                <View style={styles.totalAmountContainer}>
+                  <Text style={styles.pricingLabel}>Total Amount</Text>
+                  <Text style={styles.totalAmountValue}>₹{(totalPages * verifiedVendor.price_per_page).toFixed(2)}</Text>
+                </View>
+              </View>
+            </View>
+          )}
         </View>
 
         {/* ── Upload Files ── */}
@@ -494,7 +624,7 @@ export default function HomePage() {
               )}
             </Text>
             <Text style={styles.uploadSubText}>
-              Image, PDF, File size max 25 MB
+              PDF, Image, Document (Max 25 MB)
             </Text>
           </TouchableOpacity>
 
@@ -614,7 +744,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginTop: 20,
+    marginTop: 24,
+    marginBottom: 8,
   },
   headerIcons: {
     flexDirection: "row",
@@ -687,6 +818,79 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     letterSpacing: 0.5,
+  },
+  vendorInfoCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: "#e3f0ff",
+    shadowColor: "#1271dd",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  vendorInfoHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f7ff",
+  },
+  vendorInfoName: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#2e3563",
+    flex: 1,
+  },
+  vendorPriceBadge: {
+    backgroundColor: "#eef6ff",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  vendorPriceText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#1271dd",
+  },
+  pricingCalculator: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+  },
+  pageInputContainer: {
+    flex: 1,
+  },
+  pricingLabel: {
+    fontSize: 12,
+    color: "#979797",
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  pageInput: {
+    backgroundColor: "#f8fbff",
+    borderWidth: 1,
+    borderColor: "#e3f0ff",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 16,
+    color: "#2e3563",
+    fontWeight: "700",
+  },
+  totalAmountContainer: {
+    flex: 1,
+    alignItems: "flex-end",
+  },
+  totalAmountValue: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: "#16a34a",
   },
   uploadCard: {
     backgroundColor: "#f8fbff",
@@ -927,10 +1131,12 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     borderWidth: 4,
     borderColor: "#e3f0ff",
+    overflow: "hidden",
   },
   profileImageLarge: {
-    width: 100,
-    height: 100,
+    width: 120,
+    height: 120,
+    resizeMode: "contain",
   },
   profileInfoList: {
     width: "100%",
@@ -964,13 +1170,13 @@ const styles = StyleSheet.create({
   profileLogoutBtn: {
     width: "100%",
     height: 56,
-    backgroundColor: "#e31e1e",
+    backgroundColor: "#1271dd",
     borderRadius: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
-    shadowColor: "#e31e1e",
+    shadowColor: "#818181ff",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
@@ -993,12 +1199,13 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   profileImageSmall: {
-    width: 28,
-    height: 28,
+    width: 44,
+    height: 44,
+    resizeMode: "contain",
   },
   profileDeleteBtn: {
     width: "100%",
-    height: 56,
+    height: 48,
     backgroundColor: "#ffffff",
     borderRadius: 12,
     flexDirection: "row",
@@ -1007,11 +1214,11 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 12,
     borderWidth: 1.5,
-    borderColor: "#e31e1e",
+    borderColor: "#9d9d9dff",
   },
   profileDeleteText: {
     color: "#e31e1e",
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "700",
   },
   usernameModal: {

@@ -19,7 +19,7 @@ router.post('/register', async (req, res) => {
     // Check if user exists (email or username)
     let userRes;
     try {
-      userRes = await db.query('SELECT * FROM users WHERE email = $1 OR username = $2', [email, username]);
+      userRes = await db.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1) OR LOWER(username) = LOWER($2)', [email, username]);
     } catch (dbErr) {
       console.error('Database query error (check user):', dbErr.message);
       return res.status(500).json({ message: "Database Error: " + dbErr.message });
@@ -27,10 +27,10 @@ router.post('/register', async (req, res) => {
 
     if (userRes.rows.length > 0) {
       const existingUser = userRes.rows[0];
-      if (existingUser.email === email) {
+      if (existingUser.email.toLowerCase() === email.toLowerCase()) {
         return res.status(400).json({ message: "Email already exists" });
       }
-      if (existingUser.username === username) {
+      if (existingUser.username.toLowerCase() === username.toLowerCase()) {
         return res.status(400).json({ message: "Username already taken" });
       }
     }
@@ -90,7 +90,7 @@ router.post('/login', async (req, res) => {
 
     // Check for user (by email or username)
     const userRes = await db.query(
-      'SELECT * FROM users WHERE email = $1 OR username = $1',
+      'SELECT * FROM users WHERE LOWER(email) = LOWER($1) OR LOWER(username) = LOWER($1)',
       [identifier]
     );
     if (userRes.rows.length === 0) {
@@ -258,7 +258,7 @@ router.put('/username', auth, async (req, res) => {
     }
 
     // Check if new username is already taken
-    const checkRes = await db.query('SELECT * FROM users WHERE username = $1', [username]);
+    const checkRes = await db.query('SELECT * FROM users WHERE LOWER(username) = LOWER($1)', [username]);
     if (checkRes.rows.length > 0) {
       // If it belongs to someone else
       if (checkRes.rows[0].id !== req.user.id) {

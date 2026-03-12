@@ -8,12 +8,12 @@ import { useEffect } from 'react';
 // Import Share dynamically or handle missing native modules in Expo Go
 let Share: any;
 try {
-  Share = require('react-native-share').default;
+     Share = require('react-native-share').default;
 } catch (e) {
-  console.warn("native modules are not available in Expo Go.");
-}const PrintSettings = () => {
+     console.warn("native modules are not available in Expo Go.");
+} const PrintSettings = () => {
      const router = useRouter();
-     const { files } = useLocalSearchParams<{ files: string }>();
+     const { files, vendorId, vendorPhone } = useLocalSearchParams<{ files: string, vendorId: string, vendorPhone: string }>();
      const uploadedFiles = files ? JSON.parse(files) as Array<{ uri: string, name: string, mimeType: string }> : [];
 
      const [copies, setCopies] = useState(1);
@@ -107,7 +107,7 @@ try {
                // Must be built with dev client for react-native-share
                if (!Share) {
                     Alert.alert(
-                         "Native Module Required", 
+                         "Native Module Required",
                          "WhatsApp sharing needs a custom native build. Please exit Expo Go and compile the app using 'npx expo run:android'."
                     );
                     return;
@@ -120,7 +120,7 @@ try {
                // 2. Generate JSON configuration
                const printConfig = {
                     job_id: jobId,
-                    vendor_id: "test123",
+                    vendor_id: vendorId || "test123",
                     copies: copies,
                     paper_size: "A4", // Defaulting as specific requirement logic doesn't collect paper size
                     orientation: formData.layout,
@@ -130,7 +130,7 @@ try {
                const jsonString = JSON.stringify(printConfig, null, 2);
                // 4. Create temporarily on the device storage
                const jsonFilePath = `${FileSystem.cacheDirectory}${jobId}.json`;
-               
+
                // Save JSON locally using Expo FileSystem
                await FileSystem.writeAsStringAsync(jsonFilePath, jsonString, { encoding: FileSystem.EncodingType.UTF8 });
 
@@ -143,7 +143,7 @@ try {
                     // Append index if multiple files exist
                     const fileSuffix = uploadedFiles.length > 1 ? `_${i + 1}` : '';
                     const renamedPath = `${FileSystem.cacheDirectory}${jobId}${fileSuffix}${ext}`;
-                    
+
                     await FileSystem.copyAsync({
                          from: file.uri,
                          to: renamedPath,
@@ -157,8 +157,8 @@ try {
                const shareOptions = {
                     title: 'Send Print Job',
                     social: Share.Social.WHATSAPP,
-                    whatsAppNumber: '917727991673',
-                    urls: fileUrls, 
+                    whatsAppNumber: vendorPhone ? (vendorPhone.startsWith('91') ? vendorPhone : `91${vendorPhone}`) : '917727991673',
+                    urls: fileUrls,
                     type: '*/*', // Force WhatsApp to treat all files as documents
                     failOnCancel: false,
                };
@@ -178,38 +178,38 @@ try {
                     </TouchableOpacity>
                     <Text style={styles.title}>Print Settings</Text>
                </View>
-                {/* Job Summary Banner */}
-                <View style={styles.summaryBanner}>
+               {/* Job Summary Banner */}
+               <View style={styles.summaryBanner}>
                     <View style={styles.summaryItem}>
-                        <FileText size={20} color="#1271dd" />
-                        <Text style={styles.summaryLabel}>{uploadedFiles.length} {uploadedFiles.length === 1 ? 'File' : 'Files'}</Text>
+                         <FileText size={20} color="#1271dd" />
+                         <Text style={styles.summaryLabel}>{uploadedFiles.length} {uploadedFiles.length === 1 ? 'File' : 'Files'}</Text>
                     </View>
                     <View style={styles.summaryDivider} />
                     <View style={styles.summaryItem}>
-                        <Hash size={20} color="#1271dd" />
-                        <Text style={styles.summaryLabel}>
-                             {isLoadingPages ? 'Counting...' : `${totalPages} Total ${totalPages === 1 ? 'Page' : 'Pages'}`}
-                        </Text>
+                         <Hash size={20} color="#1271dd" />
+                         <Text style={styles.summaryLabel}>
+                              {isLoadingPages ? 'Counting...' : `${totalPages} Total ${totalPages === 1 ? 'Page' : 'Pages'}`}
+                         </Text>
                     </View>
-                </View>
-                <ScrollView contentContainerStyle={styles.content}>
-                     {/* Selected Files Summary */}
-                     {uploadedFiles.length > 0 && (
-                          <View style={styles.section}>
-                               <Text style={styles.label}>Selected Files ({uploadedFiles.length})</Text>
-                               <View style={styles.fileSummaryList}>
-                                    {uploadedFiles.map((file, idx) => (
-                                         <View key={idx} style={styles.fileSummaryItem}>
-                                              <Text style={styles.fileSummaryName} numberOfLines={1}>
-                                                   {idx + 1}. {file.name}
-                                              </Text>
-                                         </View>
-                                    ))}
-                               </View>
-                          </View>
-                     )}
+               </View>
+               <ScrollView contentContainerStyle={styles.content}>
+                    {/* Selected Files Summary */}
+                    {uploadedFiles.length > 0 && (
+                         <View style={styles.section}>
+                              <Text style={styles.label}>Selected Files ({uploadedFiles.length})</Text>
+                              <View style={styles.fileSummaryList}>
+                                   {uploadedFiles.map((file, idx) => (
+                                        <View key={idx} style={styles.fileSummaryItem}>
+                                             <Text style={styles.fileSummaryName} numberOfLines={1}>
+                                                  {idx + 1}. {file.name}
+                                             </Text>
+                                        </View>
+                                   ))}
+                              </View>
+                         </View>
+                    )}
 
-                     {/* Color Mode */}
+                    {/* Color Mode */}
                     {renderDropdown('Color Mode', 'colorMode', ['Colored', 'Black & White', 'Grayscale'])}
 
                     {/* Number of Copies */}

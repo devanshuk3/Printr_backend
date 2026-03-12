@@ -1,10 +1,6 @@
 import React, { useState } from "react";
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
-GoogleSignin.configure({
-     webClientId: '867737780609-1nfo8r9eimq0tsj88orgumiaa635sgfb.apps.googleusercontent.com',
-     offlineAccess: true,
-});
 import {
      View,
      Text,
@@ -91,8 +87,18 @@ export default function SignUp() {
      };
 
      const handleSignUp = async () => {
-          if (!fullName.trim() || !email.trim() || !username.trim() || !password.trim()) {
+          const trimmedFullName = fullName.trim();
+          const trimmedEmail = email.trim();
+          const trimmedUsername = username.trim();
+
+          if (!trimmedFullName || !trimmedEmail || !trimmedUsername || !password.trim()) {
                Alert.alert("Error", "Please fill in all fields");
+               return;
+          }
+
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(trimmedEmail)) {
+               Alert.alert("Error", "Please enter a valid email address");
                return;
           }
 
@@ -104,9 +110,9 @@ export default function SignUp() {
                          'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                         fullName,
-                         email,
-                         username,
+                         fullName: trimmedFullName,
+                         email: trimmedEmail,
+                         username: trimmedUsername,
                          password,
                     }),
                });
@@ -263,7 +269,8 @@ const styles = StyleSheet.create({
           paddingHorizontal: 20,
      },
      header: {
-          marginBottom: 32,
+          marginTop: 24,
+          marginBottom: 40,
      },
      title: {
           fontWeight: "700",

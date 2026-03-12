@@ -1,10 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
-GoogleSignin.configure({
-  webClientId: '867737780609-1nfo8r9eimq0tsj88orgumiaa635sgfb.apps.googleusercontent.com',
-  offlineAccess: true,
-});
+
 import {
   View,
   Text,
@@ -91,8 +88,16 @@ const LoginPage = () => {
   };
  
   const handleLogin = async () => {
-    if (!identifier.trim() || !password.trim()) {
+    const trimmedIdentifier = identifier.trim();
+    const trimmedPassword = password; // Usually passwords shouldn't be trimmed, but leading/trailing spaces are rare intended chars. However, let's stay safe and only trim identifier.
+    
+    if (!trimmedIdentifier || !password.trim()) {
       Alert.alert("Error", "Please fill in both email/username and password");
+      return;
+    }
+
+    if (trimmedIdentifier.includes('@') && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedIdentifier)) {
+      Alert.alert("Error", "Please enter a valid email address");
       return;
     }
 
@@ -104,8 +109,8 @@ const LoginPage = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          identifier,
-          password,
+          identifier: trimmedIdentifier,
+          password: password,
         }),
       });
 
@@ -284,7 +289,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   header: {
-    marginBottom: 32,
+    marginTop: 24,
+    marginBottom: 40,
   },
   title: {
     fontWeight: "700",
@@ -351,7 +357,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#1271dd",
+    shadowColor: "#5f5f5fff",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
