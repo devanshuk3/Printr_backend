@@ -1,7 +1,7 @@
 const db = require('./db');
 
 const initDb = async () => {
-  const createTableQuery = `
+  const createUserTableQuery = `
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       full_name VARCHAR(255) NOT NULL,
@@ -10,7 +10,9 @@ const initDb = async () => {
       password VARCHAR(255) NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
+  `;
 
+  const createVendorTableQuery = `
     CREATE TABLE IF NOT EXISTS vendors (
       id SERIAL PRIMARY KEY,
       vendor_id VARCHAR(50) UNIQUE NOT NULL,
@@ -24,33 +26,37 @@ const initDb = async () => {
   `;
 
   try {
-    // Try to create the table
-    await db.query(createTableQuery);
-    
-    // Also try to add the username column if it doesn't exist (in case table was created previously without it)
+    console.log('--- Initializing Primary DB (Render Auth/Users) ---');
+    await db.query(createUserTableQuery);
+    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE');
+    console.log('Primary DB ready.');
+
+    console.log('--- Initializing Supabase DB (Vendors) ---');
     try {
-      await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE');
-    } catch (alterErr) {
-      // Ignore errors if column already exists (though IF NOT EXISTS should handle it)
-      // or if there are other issues with the alter command.
+      await db.supabaseQuery(createVendorTableQuery);
+      
+      // Ensure vendors table has all required columns
+      await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS bw_price DECIMAL(10, 2) NOT NULL DEFAULT 0');
+      await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS color_price DECIMAL(10, 2) NOT NULL DEFAULT 0');
+      await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS shop_name VARCHAR(255)');
+      await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS phone VARCHAR(20)');
+      await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS upi_id VARCHAR(255)');
+      
+      // Migration: Copy from 'name' to 'shop_name' if necessary
+      try {
+        await db.supabaseQuery("UPDATE vendors SET shop_name = name WHERE shop_name IS NULL");
+      } catch (e) { /* ignore if name doesn't exist */ }
+      
+      console.log('Supabase DB ready.');
+    } catch (supaErr) {
+      console.error('Note: Supabase init had issues (might be permission related or table structure), skipping:', supaErr.message);
     }
 
-    console.log('Successfully initialized database: "users" and "vendors" tables are ready.');
+    console.log('Database initialization complete.');
     process.exit(0);
   } catch (err) {
-    console.error('Error initializing database:');
-    if (err.message) {
-      console.error('Message:', err.message);
-    }
-    if (err.code) {
-      console.error('Code:', err.code);
-    }
-    if (err.detail) {
-      console.error('Detail:', err.detail);
-    }
-    if (!err.message && !err.code) {
-      console.error(err);
-    }
+    console.error('Fatal Error during initialization:');
+    console.error(err.message);
     process.exit(1);
   }
 };
