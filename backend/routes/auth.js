@@ -5,16 +5,20 @@ const jwt = require('jsonwebtoken');
 const db = require('../db');
 const { OAuth2Client } = require('google-auth-library');
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const { body } = require('express-validator');
+const { validate } = require('../middleware/validator');
 
 // Register
-router.post('/register', async (req, res) => {
+router.post('/register', [
+  body('fullName').trim().notEmpty().withMessage('Full name is required').escape(),
+  body('email').isEmail().withMessage('Invalid email address').normalizeEmail().trim(),
+  body('username').trim().notEmpty().withMessage('Username is required').isLength({ min: 3 }).withMessage('Username must be at least 3 characters long').escape(),
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters long'),
+  validate
+], async (req, res) => {
   const { fullName, email, username, password } = req.body;
 
   try {
-    // Basic validation
-    if (!fullName || !email || !username || !password) {
-      return res.status(400).json({ message: "Please enter all fields" });
-    }
 
     // Check if user exists (email or username)
     let userRes;
@@ -80,13 +84,14 @@ router.post('/register', async (req, res) => {
 });
 
 // Login
-router.post('/login', async (req, res) => {
+router.post('/login', [
+  body('identifier').trim().notEmpty().withMessage('Email or username is required').escape(),
+  body('password').notEmpty().withMessage('Password is required'),
+  validate
+], async (req, res) => {
   const { identifier, password } = req.body; // 'identifier' can be email or username
 
   try {
-    if (!identifier || !password) {
-      return res.status(400).json({ message: "Please enter all fields" });
-    }
 
     // Check for user (by email or username)
     const userRes = await db.query(
@@ -184,7 +189,10 @@ router.delete('/account', auth, async (req, res) => {
 });
 
 // Google Login
-router.post('/google', async (req, res) => {
+router.post('/google', [
+  body('idToken').notEmpty().withMessage('ID Token is required'),
+  validate
+], async (req, res) => {
   const { idToken } = req.body;
 
   try {
@@ -249,13 +257,14 @@ router.post('/google', async (req, res) => {
 });
 
 // Update username
-router.put('/username', auth, async (req, res) => {
+router.put('/username', [
+  auth,
+  body('username').trim().notEmpty().withMessage('Username cannot be empty').isLength({ min: 3 }).withMessage('Username must be at least 3 characters long').escape(),
+  validate
+], async (req, res) => {
   const { username } = req.body;
 
   try {
-    if (!username || username.trim() === '') {
-      return res.status(400).json({ message: "Username cannot be empty" });
-    }
 
     // Check if new username is already taken
     const checkRes = await db.query('SELECT * FROM users WHERE LOWER(username) = LOWER($1)', [username]);

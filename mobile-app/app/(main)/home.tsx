@@ -454,23 +454,6 @@ export default function HomePage() {
                   </View>
                 </View>
 
-                <TouchableOpacity
-                  style={styles.profileLogoutBtn}
-                  onPress={() => {
-                    const params = {
-                      files: JSON.stringify(uploadedFiles),
-                      vendorId: verifiedVendor?.vendor_id || "",
-                      vendorPhone: verifiedVendor?.phone || ""
-                    };
-                    router.push({
-                      pathname: "/(main)/print-preferences",
-                      params
-                    });
-                  }}
-                >
-                  <Text style={styles.profileLogoutText}>PRINT NOW</Text>
-                </TouchableOpacity>
-
                 <TouchableOpacity 
                   style={styles.profileLogoutBtn}
                   onPress={async () => {
