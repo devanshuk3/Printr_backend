@@ -154,15 +154,25 @@ const PrintSettings = () => {
           }
 
           try {
-               // 1. Calculate random unique verification value (0.01 to 0.19)
+               // 1. Validate vendor info
+               if (!upiId) {
+                    Alert.alert("Payment Error", "This vendor has not set up their UPI ID yet. Please contact them directly.");
+                    return;
+               }
+
+               if (!vendorPhone) {
+                    Alert.alert("Contact Error", "This vendor has no phone number listed for WhatsApp sharing.");
+                    return;
+               }
+
+               // 2. Calculate random unique verification value (0.01 to 0.19)
                const randomVerification = (Math.floor(Math.random() * 19) + 1) / 100;
                const finalAmount = totalCost + randomVerification;
                
-               // 2. Construct UPI URL
-               // upi://pay?pa=7850806883@ybl&pn=Devanshu&am=2&cu=INR&tn=TestPayment
-               const upiUrl = `upi://pay?pa=${upiId || "7850806883@ybl"}&pn=${encodeURIComponent(vendorName || "Vendor")}&am=${finalAmount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(`Printr Job ${vendorId}`)}`;
+               // 3. Construct UPI URL
+               const upiUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(vendorName || "Vendor")}&am=${finalAmount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(`Printr Job ${vendorId}`)}`;
 
-               // 3. Open Payment App
+               // 4. Open Payment App
                const canOpen = await Linking.canOpenURL(upiUrl);
                if (canOpen) {
                     await Linking.openURL(upiUrl);
@@ -170,7 +180,7 @@ const PrintSettings = () => {
                     Alert.alert("Payment Error", "No UPI app found on this device. Please pay manually to the vendor.");
                }
 
-               // 4. Then prepare WhatsApp share (after a short delay to allow return)
+               // 5. Then prepare WhatsApp share (after a short delay to allow return)
                Alert.alert(
                     "Payment Initiated",
                     `Please complete the payment of ₹${finalAmount.toFixed(2)} in your UPI app. Once done, tap OK to share the documents with the vendor.`,
@@ -187,7 +197,7 @@ const PrintSettings = () => {
                                    const jobId = `job_${shortId}`;
                                    const printConfig = {
                                         job_id: jobId,
-                                        vendor_id: vendorId || "test123",
+                                        vendor_id: vendorId,
                                         copies: copies,
                                         totalPages: totalPages,
                                         pageSelection: formData.pageSelection,
@@ -212,10 +222,11 @@ const PrintSettings = () => {
                                    }
 
                                    const fileUrls = [jsonFilePath, ...renamedFiles].map(path => `file://${path}`);
+                                   const processedPhone = vendorPhone.startsWith('91') ? vendorPhone : `91${vendorPhone}`;
                                    const shareOptions = {
                                         title: 'Send Print Job',
                                         social: Share.Social.WHATSAPP,
-                                        whatsAppNumber: vendorPhone ? (vendorPhone.startsWith('91') ? vendorPhone : `91${vendorPhone}`) : '917727991673',
+                                        whatsAppNumber: processedPhone,
                                         urls: fileUrls,
                                         type: '*/*',
                                         failOnCancel: false,

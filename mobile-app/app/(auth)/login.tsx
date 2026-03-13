@@ -18,13 +18,26 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { PasswordInput } from "../../components/ui/PasswordInput";
 import { FloatingLabelInput } from "../../components/ui/FloatingLabelInput";
-import { API_URL } from "../../constants/apiConfig";
+import { API_URL, GOOGLE_CLIENT_ID } from "../../constants/apiConfig";
 import { setSharedFullName } from "../../utils/sharedState";
 import { saveAuthData } from "../../utils/authStorage";
 import { Check } from "lucide-react-native";
 
 const LoginPage = () => {
   const router = useRouter();
+
+  useEffect(() => {
+    // IMPORTANT: Configure GoogleSignin with your Web Client ID from Google Cloud Console.
+    // For standalone APKs to work, you MUST also have an Android Client ID entry 
+    // in Google Cloud Console with your package name "com.devanshu.printr" 
+    // and the SHA-1 fingerprint of your EAS build signing certificate.
+    GoogleSignin.configure({
+      webClientId: GOOGLE_CLIENT_ID,
+      offlineAccess: true,
+      forceCodeForRefreshToken: true,
+    });
+  }, []);
+
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
