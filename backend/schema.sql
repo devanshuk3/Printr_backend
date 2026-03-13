@@ -10,3 +10,14 @@ CREATE TABLE users (
     password VARCHAR(255) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE vendors (
+    id SERIAL PRIMARY KEY,
+    vendor_id VARCHAR(50) UNIQUE NOT NULL,
+    shop_name VARCHAR(255) NOT NULL,
+    bw_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    color_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    phone VARCHAR(20),
+    upi_id VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

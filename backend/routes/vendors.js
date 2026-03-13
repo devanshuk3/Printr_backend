@@ -14,7 +14,7 @@ router.get('/verify/:vendorId', [
 
   try {
     const result = await db.query(
-      'SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, phone FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
+      'SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, phone, upi_id FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
       [vendorId]
     );
 
@@ -32,7 +32,7 @@ router.get('/verify/:vendorId', [
 // Get all vendors (for Admin)
 router.get('/all', async (req, res) => {
   try {
-    const result = await db.query('SELECT vendor_id, shop_name as name, bw_price as price_per_page FROM vendors ORDER BY shop_name ASC');
+    const result = await db.query('SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, phone, upi_id FROM vendors ORDER BY shop_name ASC');
     res.json(result.rows);
   } catch (err) {
     console.error('All Vendors Error:', err.message);
