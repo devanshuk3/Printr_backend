@@ -1,23 +1,61 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, StyleSheet, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, StyleSheet, Alert, Platform, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Plus, Minus, ChevronLeft, FileText, Hash } from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
-import { useEffect } from 'react';
+
 // Import Share dynamically or handle missing native modules in Expo Go
 let Share: any;
 try {
      Share = require('react-native-share').default;
 } catch (e) {
      console.warn("native modules are not available in Expo Go.");
-} const PrintSettings = () => {
+}
+
+const parsePageRange = (rangeStr: string, maxPages: number) => {
+     if (!rangeStr.trim()) return 0;
+     const parts = rangeStr.split(',');
+     let count = 0;
+     const processedPages = new Set();
+
+     parts.forEach(part => {
+          const range = part.trim().split('-');
+          if (range.length === 2) {
+               const start = parseInt(range[0]);
+               const end = parseInt(range[1]);
+               if (!isNaN(start) && !isNaN(end)) {
+                    for (let i = Math.max(1, start); i <= Math.min(end, maxPages); i++) {
+                         processedPages.add(i);
+                    }
+               }
+          } else {
+               const page = parseInt(range[0]);
+               if (!isNaN(page) && page >= 1 && page <= maxPages) {
+                    processedPages.add(page);
+               }
+          }
+     });
+     return processedPages.size;
+};
+
+const PrintSettings = () => {
      const router = useRouter();
-     const { files, vendorId, vendorPhone } = useLocalSearchParams<{ files: string, vendorId: string, vendorPhone: string }>();
+     const { files, vendorId, vendorPhone, bwPrice, colorPrice, upiId, vendorName } = useLocalSearchParams<{ 
+          files: string, 
+          vendorId: string, 
+          vendorPhone: string,
+          bwPrice: string,
+          colorPrice: string,
+          upiId: string,
+          vendorName: string
+     }>();
      const uploadedFiles = files ? JSON.parse(files) as Array<{ uri: string, name: string, mimeType: string }> : [];
 
      const [copies, setCopies] = useState(1);
      const [totalPages, setTotalPages] = useState(0);
+     const [fullDocPages, setFullDocPages] = useState(0);
+     const [totalCost, setTotalCost] = useState(0);
      const [isLoadingPages, setIsLoadingPages] = useState(true);
      const [formData, setFormData] = useState({
           colorMode: 'Colored',
@@ -39,24 +77,21 @@ try {
                          if (isPdf) {
                               try {
                                    const content = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.UTF8 });
-                                   // Try to find the page count in the catalog first (/Count X)
                                    const countMatch = content.match(/\/Count\s+(\d+)/);
                                    if (countMatch && countMatch[1]) {
                                         total += parseInt(countMatch[1]);
                                    } else {
-                                        // Fallback: Count /Type /Page entries
                                         const pageMatches = content.match(/\/Type\s*\/Page\b/g);
                                         total += pageMatches ? pageMatches.length : 1;
                                    }
                               } catch (e) {
-                                   console.error("Error reading PDF:", e);
-                                   total += 1; // Fallback
+                                   total += 1;
                               }
                          } else {
-                              // Images or other files count as 1 page
                               total += 1;
                          }
                     }
+                    setFullDocPages(total);
                     setTotalPages(total);
                } finally {
                     setIsLoadingPages(false);
@@ -69,6 +104,21 @@ try {
                setIsLoadingPages(false);
           }
      }, [files]);
+
+     useEffect(() => {
+          if (formData.pageSelection === 'All') {
+               setTotalPages(fullDocPages);
+          } else if (formData.pageSelection === 'Custom') {
+               const count = parsePageRange(formData.customRange, fullDocPages);
+               setTotalPages(count);
+          }
+     }, [formData.pageSelection, formData.customRange, fullDocPages]);
+
+     useEffect(() => {
+          const price = formData.colorMode === 'Colored' ? parseFloat(colorPrice || "0") : parseFloat(bwPrice || "0");
+          const cost = totalPages * copies * price;
+          setTotalCost(cost);
+     }, [totalPages, copies, formData.colorMode, bwPrice, colorPrice]);
 
      const handleChange = (field: string, value: string) => {
           setFormData(prev => ({ ...prev, [field]: value }));
@@ -104,69 +154,80 @@ try {
           }
 
           try {
-               // Must be built with dev client for react-native-share
-               if (!Share) {
-                    Alert.alert(
-                         "Native Module Required",
-                         "WhatsApp sharing needs a custom native build. Please exit Expo Go and compile the app using 'npx expo run:android'."
-                    );
-                    return;
+               // 1. Calculate random unique verification value (0.01 to 0.19)
+               const randomVerification = (Math.floor(Math.random() * 19) + 1) / 100;
+               const finalAmount = totalCost + randomVerification;
+               
+               // 2. Construct UPI URL
+               // upi://pay?pa=7850806883@ybl&pn=Devanshu&am=2&cu=INR&tn=TestPayment
+               const upiUrl = `upi://pay?pa=${upiId || "7850806883@ybl"}&pn=${encodeURIComponent(vendorName || "Vendor")}&am=${finalAmount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(`Printr Job ${vendorId}`)}`;
+
+               // 3. Open Payment App
+               const canOpen = await Linking.canOpenURL(upiUrl);
+               if (canOpen) {
+                    await Linking.openURL(upiUrl);
+               } else {
+                    Alert.alert("Payment Error", "No UPI app found on this device. Please pay manually to the vendor.");
                }
 
-               // 1. Generate unique job ID prefixed with "job_"
-               const shortId = Math.random().toString(36).substring(2, 6) + Date.now().toString(36).substring(4, 8);
-               const jobId = `job_${shortId}`;
+               // 4. Then prepare WhatsApp share (after a short delay to allow return)
+               Alert.alert(
+                    "Payment Initiated",
+                    `Please complete the payment of ₹${finalAmount.toFixed(2)} in your UPI app. Once done, tap OK to share the documents with the vendor.`,
+                    [
+                         {
+                              text: "OK",
+                              onPress: async () => {
+                                   if (!Share) {
+                                        Alert.alert("Native Module Required", "WhatsApp sharing needs a custom native build.");
+                                        return;
+                                   }
 
-               // 2. Generate JSON configuration
-               const printConfig = {
-                    job_id: jobId,
-                    vendor_id: vendorId || "test123",
-                    copies: copies,
-                    paper_size: "A4", // Defaulting as specific requirement logic doesn't collect paper size
-                    orientation: formData.layout,
-                    color: formData.colorMode
-               };
+                                   const shortId = Math.random().toString(36).substring(2, 6) + Date.now().toString(36).substring(4, 8);
+                                   const jobId = `job_${shortId}`;
+                                   const printConfig = {
+                                        job_id: jobId,
+                                        vendor_id: vendorId || "test123",
+                                        copies: copies,
+                                        totalPages: totalPages,
+                                        pageSelection: formData.pageSelection,
+                                        customRange: formData.customRange,
+                                        color: formData.colorMode,
+                                        final_amount: finalAmount.toFixed(2)
+                                   };
 
-               const jsonString = JSON.stringify(printConfig, null, 2);
-               // 4. Create temporarily on the device storage
-               const jsonFilePath = `${FileSystem.cacheDirectory}${jobId}.json`;
+                                   const jsonString = JSON.stringify(printConfig, null, 2);
+                                   const jsonFilePath = `${FileSystem.cacheDirectory}${jobId}.json`;
+                                   await FileSystem.writeAsStringAsync(jsonFilePath, jsonString, { encoding: FileSystem.EncodingType.UTF8 });
 
-               // Save JSON locally using Expo FileSystem
-               await FileSystem.writeAsStringAsync(jsonFilePath, jsonString, { encoding: FileSystem.EncodingType.UTF8 });
+                                   const renamedFiles = [];
+                                   for (let i = 0; i < uploadedFiles.length; i++) {
+                                        const file = uploadedFiles[i];
+                                        const extMatch = file.name.match(/\.[0-9a-z]+$/i);
+                                        const ext = extMatch ? extMatch[0] : '.pdf';
+                                        const fileSuffix = uploadedFiles.length > 1 ? `_${i + 1}` : '';
+                                        const renamedPath = `${FileSystem.cacheDirectory}${jobId}${fileSuffix}${ext}`;
+                                        await FileSystem.copyAsync({ from: file.uri, to: renamedPath });
+                                        renamedFiles.push(renamedPath);
+                                   }
 
-               // Rename original files to match job id temporarily
-               const renamedFiles = [];
-               for (let i = 0; i < uploadedFiles.length; i++) {
-                    const file = uploadedFiles[i];
-                    const extMatch = file.name.match(/\.[0-9a-z]+$/i);
-                    const ext = extMatch ? extMatch[0] : '.pdf';
-                    // Append index if multiple files exist
-                    const fileSuffix = uploadedFiles.length > 1 ? `_${i + 1}` : '';
-                    const renamedPath = `${FileSystem.cacheDirectory}${jobId}${fileSuffix}${ext}`;
-
-                    await FileSystem.copyAsync({
-                         from: file.uri,
-                         to: renamedPath,
-                    });
-                    renamedFiles.push(renamedPath);
-               }
-
-               const fileUrls = [jsonFilePath, ...renamedFiles].map(path => `file://${path}`);
-
-               // 6. Open WhatsApp to vendor with the files attached
-               const shareOptions = {
-                    title: 'Send Print Job',
-                    social: Share.Social.WHATSAPP,
-                    whatsAppNumber: vendorPhone ? (vendorPhone.startsWith('91') ? vendorPhone : `91${vendorPhone}`) : '917727991673',
-                    urls: fileUrls,
-                    type: '*/*', // Force WhatsApp to treat all files as documents
-                    failOnCancel: false,
-               };
-
-               await Share.shareSingle(shareOptions as any);
+                                   const fileUrls = [jsonFilePath, ...renamedFiles].map(path => `file://${path}`);
+                                   const shareOptions = {
+                                        title: 'Send Print Job',
+                                        social: Share.Social.WHATSAPP,
+                                        whatsAppNumber: vendorPhone ? (vendorPhone.startsWith('91') ? vendorPhone : `91${vendorPhone}`) : '917727991673',
+                                        urls: fileUrls,
+                                        type: '*/*',
+                                        failOnCancel: false,
+                                   };
+                                   await Share.shareSingle(shareOptions as any);
+                              }
+                         }
+                    ]
+               );
           } catch (error) {
-               console.error("Print share error:", error);
-               Alert.alert("Error", "Could not open WhatsApp or attach files. Make sure WhatsApp is installed.");
+               console.error("Checkout error:", error);
+               Alert.alert("Error", "Something went wrong during checkout.");
           }
      };
 
@@ -178,7 +239,6 @@ try {
                     </TouchableOpacity>
                     <Text style={styles.title}>Print Settings</Text>
                </View>
-               {/* Job Summary Banner */}
                <View style={styles.summaryBanner}>
                     <View style={styles.summaryItem}>
                          <FileText size={20} color="#1271dd" />
@@ -188,12 +248,25 @@ try {
                     <View style={styles.summaryItem}>
                          <Hash size={20} color="#1271dd" />
                          <Text style={styles.summaryLabel}>
-                              {isLoadingPages ? 'Counting...' : `${totalPages} Total ${totalPages === 1 ? 'Page' : 'Pages'}`}
+                              {isLoadingPages ? 'Counting...' : `${totalPages} Total Pages`}
                          </Text>
                     </View>
                </View>
-               <ScrollView contentContainerStyle={styles.content}>
-                    {/* Selected Files Summary */}
+               
+               <View style={styles.totalPriceStick}>
+                    <View>
+                        <Text style={styles.stickLabel}>Total Cost</Text>
+                        <Text style={styles.stickValue}>₹{totalCost.toFixed(2)}</Text>
+                    </View>
+                    <TouchableOpacity
+                        style={styles.stickBtn}
+                        onPress={handleCheckout}
+                    >
+                        <Text style={styles.stickBtnText}>PRINT NOW</Text>
+                    </TouchableOpacity>
+               </View>
+
+               <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 100 }]}>
                     {uploadedFiles.length > 0 && (
                          <View style={styles.section}>
                               <Text style={styles.label}>Selected Files ({uploadedFiles.length})</Text>
@@ -209,10 +282,8 @@ try {
                          </View>
                     )}
 
-                    {/* Color Mode */}
                     {renderDropdown('Color Mode', 'colorMode', ['Colored', 'Black & White', 'Grayscale'])}
 
-                    {/* Number of Copies */}
                     <View style={styles.section}>
                          <Text style={styles.label}>Number of copies</Text>
                          <View style={styles.copiesSection}>
@@ -220,7 +291,7 @@ try {
                                    style={styles.copiesInput}
                                    value={copies.toString()}
                                    keyboardType="numeric"
-                                   onChangeText={(text) => setCopies(parseInt(text) || 0)}
+                                   onChangeText={(text) => setCopies(parseInt(text) || 1)}
                               />
                               <View style={styles.stepperContainer}>
                                    <TouchableOpacity
@@ -240,10 +311,8 @@ try {
                          </View>
                     </View>
 
-                    {/* Layout */}
                     {renderDropdown('Layout', 'layout', ['Portrait', 'Landscape'])}
 
-                    {/* Scaling */}
                     <View style={styles.section}>
                          <Text style={styles.label}>Scaling</Text>
                          <View style={styles.pickerContainer}>
@@ -273,7 +342,6 @@ try {
                          )}
                     </View>
 
-                    {/* Pages */}
                     <View style={styles.section}>
                          <Text style={styles.label}>Pages</Text>
                          <View style={styles.pagesList}>
@@ -305,7 +373,6 @@ try {
                          </View>
                     </View>
 
-                    {/* Double-Sided */}
                     <View style={styles.section}>
                          <Text style={styles.label}>Double-Sided Printing</Text>
                          <View style={styles.doubleSidedList}>
@@ -321,252 +388,96 @@ try {
                               ))}
                          </View>
                     </View>
-
-                    {/* Action Buttons */}
-                    <View style={styles.buttonRow}>
-                         <TouchableOpacity
-                              style={[styles.actionButton, styles.cancelButton]}
-                              onPress={() => router.back()}
-                         >
-                              <Text style={styles.buttonText}>CANCEL</Text>
-                         </TouchableOpacity>
-                         <TouchableOpacity
-                              style={[styles.actionButton, styles.printButton]}
-                              onPress={handleCheckout}
-                         >
-                              <Text style={styles.checkoutButtonText}>PRINT NOW</Text>
-                         </TouchableOpacity>
-                    </View>
                </ScrollView>
           </SafeAreaView>
      );
 };
 
 const styles = StyleSheet.create({
-     container: {
-          flex: 1,
+     container: { flex: 1, backgroundColor: '#ffffff' },
+     header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingTop: 20, paddingBottom: 10, gap: 16 },
+     backButton: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#f5f7fa', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e1e4e8' },
+     content: { paddingHorizontal: 24, paddingTop: 10, paddingBottom: 40 },
+     title: { fontSize: 24, fontWeight: '700', color: '#2e3563' },
+     section: { marginBottom: 32 },
+     label: { fontSize: 16, fontWeight: '700', color: '#2e3563', marginBottom: 16, letterSpacing: 0.3 },
+     pickerContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+     optionButton: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, borderWidth: 1.5, borderColor: '#e1e4e8', backgroundColor: '#ffffff' },
+     optionButtonSelected: { backgroundColor: '#1271dd', borderColor: '#1271dd' },
+     optionText: { color: '#2e3563', fontWeight: '600', fontSize: 14 },
+     optionTextSelected: { color: '#ffffff' },
+     copiesSection: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+     copiesInput: { width: 80, height: 52, borderWidth: 1.5, borderColor: '#e1e4e8', borderRadius: 12, paddingHorizontal: 16, fontSize: 16, fontWeight: '600', color: '#2e3563', backgroundColor: '#fcfdfe' },
+     stepperContainer: { flexDirection: 'row', borderWidth: 1.5, borderColor: '#e1e4e8', borderRadius: 12, backgroundColor: '#ffffff', overflow: 'hidden' },
+     stepperButton: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center' },
+     stepperDivider: { width: 1.5, height: '100%', backgroundColor: '#e1e4e8' },
+     textInput: { marginTop: 12, height: 52, borderWidth: 1.5, borderColor: '#e1e4e8', borderRadius: 12, paddingHorizontal: 16, fontSize: 15, color: '#2e3563', backgroundColor: '#fcfdfe' },
+     pagesList: { gap: 14 },
+     doubleSidedList: { gap: 14 },
+     radioRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 4 },
+     radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: '#e1e4e8', backgroundColor: '#ffffff', alignItems: 'center', justifyContent: 'center' },
+     radioSelected: { borderColor: '#1271dd', borderWidth: 6 },
+     radioLabel: { fontSize: 15, fontWeight: '500', color: '#2e3563' },
+     buttonRow: { flexDirection: 'row', gap: 16, marginTop: 16 },
+     actionButton: { flex: 1, height: 56, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+     cancelButton: { backgroundColor: '#ffffff', borderWidth: 1.5, borderColor: '#e1e4e8' },
+     printButton: { backgroundColor: '#1271dd', shadowColor: '#1271dd', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
+     buttonText: { color: '#2e3563', fontWeight: '700', fontSize: 15, letterSpacing: 0.5 },
+     checkoutButtonText: { color: '#ffffff', fontWeight: '700', fontSize: 15, letterSpacing: 0.5 },
+     fileSummaryList: { backgroundColor: '#f8fbff', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e3f0ff' },
+     fileSummaryItem: { paddingVertical: 4 },
+     fileSummaryName: { fontSize: 14, color: '#1271dd', fontWeight: '500' },
+     summaryBanner: { flexDirection: 'row', backgroundColor: '#eff6ff', marginHorizontal: 24, marginTop: 8, marginBottom: 16, padding: 16, borderRadius: 16, alignItems: 'center', justifyContent: 'space-around', borderWidth: 1, borderColor: '#bfdbfe' },
+     summaryItem: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+     summaryLabel: { fontSize: 15, fontWeight: '700', color: '#2e3563' },
+     summaryDivider: { width: 1, height: 24, backgroundColor: '#bfdbfe' },
+     totalPriceStick: {
           backgroundColor: '#ffffff',
-     },
-     header: {
           flexDirection: 'row',
+          padding: 24,
           alignItems: 'center',
-          paddingHorizontal: 24,
-          paddingTop: 20,
-          paddingBottom: 10,
-          gap: 16,
+          justifyContent: 'space-between',
+          borderTopWidth: 1,
+          borderColor: '#f0f0f0',
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 10,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: -4 },
+          shadowOpacity: 0.1,
+          shadowRadius: 10,
+          elevation: 10,
      },
-     backButton: {
-          width: 44,
-          height: 44,
-          borderRadius: 12,
-          backgroundColor: '#f5f7fa',
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderWidth: 1,
-          borderColor: '#e1e4e8',
-     },
-     content: {
-          paddingHorizontal: 24,
-          paddingTop: 10,
-          paddingBottom: 40,
-     },
-     title: {
-          fontSize: 24,
-          fontWeight: '700',
-          color: '#2e3563',
-     },
-     section: {
-          marginBottom: 32,
-     },
-     label: {
-          fontSize: 16,
-          fontWeight: '700',
-          color: '#2e3563',
-          marginBottom: 16,
-          letterSpacing: 0.3,
-     },
-     pickerContainer: {
-          flexDirection: 'row',
-          flexWrap: 'wrap',
-          gap: 10,
-     },
-     optionButton: {
-          paddingVertical: 10,
-          paddingHorizontal: 16,
-          borderRadius: 10,
-          borderWidth: 1.5,
-          borderColor: '#e1e4e8',
-          backgroundColor: '#ffffff',
-     },
-     optionButtonSelected: {
-          backgroundColor: '#1271dd',
-          borderColor: '#1271dd',
-     },
-     optionText: {
-          color: '#2e3563',
-          fontWeight: '600',
-          fontSize: 14,
-     },
-     optionTextSelected: {
-          color: '#ffffff',
-     },
-     copiesSection: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 16,
-     },
-     copiesInput: {
-          width: 80,
-          height: 52,
-          borderWidth: 1.5,
-          borderColor: '#e1e4e8',
-          borderRadius: 12,
-          paddingHorizontal: 16,
-          fontSize: 16,
-          fontWeight: '600',
-          color: '#2e3563',
-          backgroundColor: '#fcfdfe',
-     },
-     stepperContainer: {
-          flexDirection: 'row',
-          borderWidth: 1.5,
-          borderColor: '#e1e4e8',
-          borderRadius: 12,
-          backgroundColor: '#ffffff',
-          overflow: 'hidden',
-     },
-     stepperButton: {
-          width: 52,
-          height: 52,
-          alignItems: 'center',
-          justifyContent: 'center',
-     },
-     stepperDivider: {
-          width: 1.5,
-          height: '100%',
-          backgroundColor: '#e1e4e8',
-     },
-     textInput: {
-          marginTop: 12,
-          height: 52,
-          borderWidth: 1.5,
-          borderColor: '#e1e4e8',
-          borderRadius: 12,
-          paddingHorizontal: 16,
-          fontSize: 15,
-          color: '#2e3563',
-          backgroundColor: '#fcfdfe',
-     },
-     pagesList: {
-          gap: 14,
-     },
-     doubleSidedList: {
-          gap: 14,
-     },
-     radioRow: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 12,
-          paddingVertical: 4,
-     },
-     radio: {
-          width: 22,
-          height: 22,
-          borderRadius: 11,
-          borderWidth: 2,
-          borderColor: '#e1e4e8',
-          backgroundColor: '#ffffff',
-          alignItems: 'center',
-          justifyContent: 'center',
-     },
-     radioSelected: {
-          borderColor: '#1271dd',
-          borderWidth: 6,
-     },
-     radioLabel: {
-          fontSize: 15,
+     stickLabel: {
+          fontSize: 12,
+          color: '#979797',
           fontWeight: '500',
+          textTransform: 'uppercase',
+          letterSpacing: 1,
+     },
+     stickValue: {
+          fontSize: 24,
+          fontWeight: '800',
           color: '#2e3563',
+          marginTop: 2,
      },
-     buttonRow: {
-          flexDirection: 'row',
-          gap: 16,
-          marginTop: 16,
-     },
-     actionButton: {
-          flex: 1,
-          height: 56,
-          borderRadius: 12,
-          alignItems: 'center',
-          justifyContent: 'center',
-     },
-     cancelButton: {
-          backgroundColor: '#ffffff',
-          borderWidth: 1.5,
-          borderColor: '#e1e4e8',
-     },
-     printButton: {
+     stickBtn: {
           backgroundColor: '#1271dd',
+          paddingHorizontal: 24,
+          paddingVertical: 14,
+          borderRadius: 14,
           shadowColor: '#1271dd',
           shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.2,
+          shadowOpacity: 0.3,
           shadowRadius: 8,
-          elevation: 4,
+          elevation: 5,
      },
-     buttonText: {
-          color: '#2e3563',
-          fontWeight: '700',
-          fontSize: 15,
-          letterSpacing: 0.5,
-     },
-     checkoutButtonText: {
+     stickBtnText: {
           color: '#ffffff',
           fontWeight: '700',
-          fontSize: 15,
-          letterSpacing: 0.5,
-     },
-     fileSummaryList: {
-          backgroundColor: '#f8fbff',
-          borderRadius: 12,
-          padding: 12,
-          borderWidth: 1,
-          borderColor: '#e3f0ff',
-     },
-     fileSummaryItem: {
-          paddingVertical: 4,
-     },
-     fileSummaryName: {
-          fontSize: 14,
-          color: '#1271dd',
-          fontWeight: '500',
-     },
-     summaryBanner: {
-          flexDirection: 'row',
-          backgroundColor: '#eff6ff',
-          marginHorizontal: 24,
-          marginTop: 8,
-          marginBottom: 16,
-          padding: 16,
-          borderRadius: 16,
-          alignItems: 'center',
-          justifyContent: 'space-around',
-          borderWidth: 1,
-          borderColor: '#bfdbfe',
-     },
-     summaryItem: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 10,
-     },
-     summaryLabel: {
-          fontSize: 15,
-          fontWeight: '700',
-          color: '#2e3563',
-     },
-     summaryDivider: {
-          width: 1,
-          height: 24,
-          backgroundColor: '#bfdbfe',
+          fontSize: 16,
      },
 });
 

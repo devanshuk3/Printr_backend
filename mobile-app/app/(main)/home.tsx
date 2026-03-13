@@ -107,6 +107,30 @@ export default function HomePage() {
     fetchUser();
   }, [params.isNewUser]);
 
+  const calculatePageCount = async (files: any[]) => {
+    let total = 0;
+    for (const file of files) {
+      const isPdf = file.mimeType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+      if (isPdf) {
+        try {
+          const content = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.UTF8 });
+          const countMatch = content.match(/\/Count\s+(\d+)/);
+          if (countMatch && countMatch[1]) {
+            total += parseInt(countMatch[1]);
+          } else {
+            const pageMatches = content.match(/\/Type\s*\/Page\b/g);
+            total += pageMatches ? pageMatches.length : 1;
+          }
+        } catch (e) {
+          total += 1;
+        }
+      } else {
+        total += 1;
+      }
+    }
+    return total;
+  };
+
   const handleUpdateUsername = async () => {
     if (!newUsername.trim()) {
       Alert.alert("Error", "Username cannot be empty");
@@ -268,8 +292,13 @@ export default function HomePage() {
           };
         }));
 
-        setUploadedFiles(prev => [...prev, ...newFiles]);
+        const updatedFiles = [...uploadedFiles, ...newFiles];
+        setUploadedFiles(updatedFiles);
         setHasUploaded(true);
+        
+        // Automatically calculate pages for price preview
+        const pages = await calculatePageCount(updatedFiles);
+        setTotalPages(pages);
         
         if (filteredAssets.length < result.assets.length) {
           Alert.alert("Notice", `Some files were excluded. Only PDF, JPEG, PNG, and Word docs are allowed.`);
@@ -283,11 +312,17 @@ export default function HomePage() {
     }
   };
 
-  const removeFile = (index: number) => {
+  const removeFile = async (index: number) => {
     const updatedFiles = [...uploadedFiles];
     updatedFiles.splice(index, 1);
     setUploadedFiles(updatedFiles);
-    if (updatedFiles.length === 0) setHasUploaded(false);
+    if (updatedFiles.length === 0) {
+      setHasUploaded(false);
+      setTotalPages(0);
+    } else {
+      const pages = await calculatePageCount(updatedFiles);
+      setTotalPages(pages);
+    }
   };
 
   const handlePreview = async (uri: string, mime: string) => {
@@ -346,7 +381,15 @@ export default function HomePage() {
     }
     router.push({
       pathname: "/print-preferences",
-      params: { files: JSON.stringify(uploadedFiles) },
+      params: { 
+        files: JSON.stringify(uploadedFiles),
+        vendorId: vendorId,
+        bwPrice: verifiedVendor?.price_per_page?.toString() || "0",
+        colorPrice: verifiedVendor?.color_price?.toString() || "0",
+        vendorPhone: verifiedVendor?.phone || "",
+        upiId: verifiedVendor?.upi_id || "",
+        vendorName: verifiedVendor?.shop_name || verifiedVendor?.name || "Vendor"
+      },
     } as any);
   };
 
@@ -566,18 +609,12 @@ export default function HomePage() {
               </View>
               
               <View style={styles.pricingCalculator}>
-                <View style={styles.pageInputContainer}>
-                  <Text style={styles.pricingLabel}>Total Pages</Text>
-                  <TextInput
-                    style={styles.pageInput}
-                    keyboardType="numeric"
-                    value={totalPages.toString()}
-                    onChangeText={(text) => setTotalPages(parseInt(text) || 0)}
-                  />
-                </View>
-                <View style={styles.totalAmountContainer}>
-                  <Text style={styles.pricingLabel}>Total Amount</Text>
-                  <Text style={styles.totalAmountValue}>₹{(totalPages * verifiedVendor.price_per_page).toFixed(2)}</Text>
+                <View style={styles.totalAmountContainerNoInput}>
+                  <View style={styles.totalAmountLabelCol}>
+                    <Text style={styles.pricingLabel}>Estimated Pages</Text>
+                    <Text style={styles.pricingSubLabel}>Based on uploaded files</Text>
+                  </View>
+                  <Text style={styles.totalAmountValueLarge}>₹{(totalPages * verifiedVendor.price_per_page).toFixed(2)}</Text>
                 </View>
               </View>
             </View>
@@ -870,10 +907,31 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "flex-end",
   },
+  totalAmountContainerNoInput: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 8,
+    width: '100%'
+  },
+  totalAmountLabelCol: {
+    flexDirection: "column",
+  },
   totalAmountValue: {
     fontSize: 24,
     fontWeight: "800",
     color: "#16a34a",
+  },
+  totalAmountValueLarge: {
+    color: "#2e3563",
+    fontSize: 28,
+    fontWeight: "800",
+  },
+  pricingSubLabel: {
+    color: "#979797",
+    fontSize: 12,
+    marginTop: 2,
+    fontWeight: "500"
   },
   uploadCard: {
     backgroundColor: "#f8fbff",
