@@ -13,14 +13,7 @@ import { useRouter } from "expo-router";
 import { ChevronLeft, Store, Printer, IndianRupee, TrendingUp } from "lucide-react-native";
 import { API_URL } from "../../constants/apiConfig";
 
-// Static Vendor Data
-const VENDOR_DATA = [
-  { id: "V001", name: "Metro Print Station", pages: 1250, pricePerPage: 5 },
-  { id: "V002", name: "Campus Copy Center", pages: 2840, pricePerPage: 3 },
-  { id: "V003", name: "Quick Print Hub", pages: 940, pricePerPage: 5 },
-  { id: "V004", name: "The Digital Press", pages: 5620, pricePerPage: 2 },
-  { id: "V005", name: "Modern Xerographics", pages: 1800, pricePerPage: 4 },
-];
+// Vendor data is now fetched from the database
 
 const AdminVendorsPage = () => {
   const router = useRouter();
@@ -45,10 +38,9 @@ const AdminVendorsPage = () => {
     }
   };
 
-  const calculateFinalAmount = (pages: number, rate: number) => {
-    const total = pages * rate;
-    const final = total * 0.1; // 10% commission/fees
-    return final.toFixed(2);
+  const formatCurrency = (amount: any) => {
+    const val = parseFloat(amount) || 0;
+    return val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
   return (
@@ -86,12 +78,12 @@ const AdminVendorsPage = () => {
         {loading ? (
           <ActivityIndicator size="large" color="#1271dd" style={{ marginTop: 40 }} />
         ) : vendors.map((vendor) => {
-          // Note: In real app, vendor.pages would come from orders/stats table
-          const mockPages = vendor.pages || Math.floor(Math.random() * 5000);
-          const finalAmount = calculateFinalAmount(mockPages, vendor.price_per_page);
+          const pagesPrinted = vendor.pages_printed || 0;
+          const platformFeeAmount = vendor.platform_fee || 0;
+          const grossRevenueAmount = pagesPrinted * (vendor.price_per_page || 0);
           
           return (
-            <View key={vendor.id} style={styles.vendorCard}>
+            <View key={vendor.vendor_id} style={styles.vendorCard}>
               <View style={styles.cardHeader}>
                 <View style={styles.iconContainer}>
                   <Store size={24} color="#1271dd" />
@@ -108,7 +100,7 @@ const AdminVendorsPage = () => {
                     <Printer size={16} color="#979797" />
                     <Text style={styles.statLabel}>Total Pages</Text>
                   </View>
-                  <Text style={styles.statValue}>{mockPages.toLocaleString()}</Text>
+                  <Text style={styles.statValue}>{pagesPrinted.toLocaleString()}</Text>
                 </View>
 
                 <View style={styles.statDivider} />
@@ -124,12 +116,12 @@ const AdminVendorsPage = () => {
 
               <View style={styles.revenueContainer}>
                 <View>
-                  <Text style={styles.revenueLabel}>Total Gross Fee</Text>
-                  <Text style={styles.grossValue}>₹{(mockPages * vendor.price_per_page).toLocaleString()}</Text>
+                  <Text style={styles.revenueLabel}>Total Gross Revenue</Text>
+                  <Text style={styles.grossValue}>₹{grossRevenueAmount.toLocaleString()}</Text>
                 </View>
                 <View style={styles.finalAmountBox}>
                   <Text style={styles.finalLabel}>Platform Fee (10%)</Text>
-                  <Text style={styles.finalValue}>₹{parseFloat(finalAmount).toLocaleString()}</Text>
+                  <Text style={styles.finalValue}>₹{formatCurrency(platformFeeAmount)}</Text>
                 </View>
               </View>
             </View>

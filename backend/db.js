@@ -16,7 +16,6 @@ const pool = process.env.DATABASE_URL
     });
 
 // Supabase DB - EXCLUSIVELY for Vendor information
-// Ensure SUPABASE_URL is set in Render/Local environment
 const supabasePool = process.env.SUPABASE_URL
   ? new Pool({
       connectionString: process.env.SUPABASE_URL,

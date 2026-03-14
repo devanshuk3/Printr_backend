@@ -21,6 +21,8 @@ const initDb = async () => {
       color_price DECIMAL(10, 2) NOT NULL DEFAULT 0,
       phone VARCHAR(20),
       upi_id VARCHAR(255),
+      pages_printed INTEGER DEFAULT 0,
+      platform_fee DECIMAL(10, 2) DEFAULT 0.00,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `;
@@ -41,6 +43,8 @@ const initDb = async () => {
       await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS shop_name VARCHAR(255)');
       await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS phone VARCHAR(20)');
       await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS upi_id VARCHAR(255)');
+      await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS pages_printed INTEGER DEFAULT 0');
+      await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS platform_fee DECIMAL(10, 2) DEFAULT 0.00');
       
       // Migration: Copy from 'name' to 'shop_name' if necessary
       try {

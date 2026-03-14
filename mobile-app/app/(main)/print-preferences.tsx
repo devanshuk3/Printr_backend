@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Plus, Minus, ChevronLeft, FileText, Hash } from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
+import { API_URL } from "../../constants/apiConfig";
 
 // Import Share dynamically or handle missing native modules in Expo Go
 let Share: any;
@@ -223,19 +224,34 @@ const PrintSettings = () => {
 
                                    const fileUrls = [jsonFilePath, ...renamedFiles].map(path => `file://${path}`);
                                    const processedPhone = vendorPhone.startsWith('91') ? vendorPhone : `91${vendorPhone}`;
-                                   const shareOptions = {
-                                        title: 'Send Print Job',
-                                        social: Share.Social.WHATSAPP,
-                                        whatsAppNumber: processedPhone,
-                                        urls: fileUrls,
-                                        type: '*/*',
-                                        failOnCancel: false,
-                                   };
-                                   await Share.shareSingle(shareOptions as any);
-                              }
-                         }
-                    ]
-               );
+                                    const shareOptions = {
+                                         title: 'Send Print Job',
+                                         social: Share.Social.WHATSAPP,
+                                         whatsAppNumber: processedPhone,
+                                         urls: fileUrls,
+                                         type: '*/*',
+                                         failOnCancel: false,
+                                    };
+                                    await Share.shareSingle(shareOptions as any);
+
+                                    // NEW: Increment vendor stats in database
+                                    try {
+                                         const statsResponse = await fetch(`${API_URL}/vendors/increment-stats`, {
+                                              method: 'POST',
+                                              headers: { 'Content-Type': 'application/json' },
+                                              body: JSON.stringify({
+                                                   vendorId: vendorId,
+                                                   pages: totalPages * copies
+                                              })
+                                         });
+                                         if (!statsResponse.ok) console.warn("Failed to update stats on server");
+                                    } catch (statsErr) {
+                                         console.error("Stats update error:", statsErr);
+                                    }
+                               }
+                          }
+                     ]
+                );
           } catch (error) {
                console.error("Checkout error:", error);
                Alert.alert("Error", "Something went wrong during checkout.");
