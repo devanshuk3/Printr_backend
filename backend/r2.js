@@ -7,7 +7,7 @@ if (!process.env.R2_ENDPOINT) {
 }
 
 const r2 = new S3Client({
-  region: 'auto',
+  region: 'us-east-1', // Fixed for SigV4 compliance in many environments
   endpoint: process.env.R2_ENDPOINT,
   forcePathStyle: true, // Crucial for R2 account-specific endpoints
   credentials: {

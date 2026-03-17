@@ -195,6 +195,7 @@ const PrintSettings = () => {
                     }
 
                     const { uploadUrl, filePath } = await urlResponse.json();
+                    console.log(`[DEBUG] Attempting upload to: ${uploadUrl}`);
 
                     const uploadRes = await FileSystem.uploadAsync(uploadUrl, file.uri, {
                          httpMethod: 'PUT',
@@ -205,6 +206,8 @@ const PrintSettings = () => {
                     });
 
                     if (uploadRes.status < 200 || uploadRes.status >= 300) {
+                         console.log(`[DEBUG] R2 Response Status: ${uploadRes.status}`);
+                         console.log(`[DEBUG] R2 Response Body: ${uploadRes.body}`);
                          throw new Error(`Cloud storage upload failed with status ${uploadRes.status}`);
                     }
                     return filePath;
