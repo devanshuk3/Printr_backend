@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, StyleSheet, Alert, Platform, Linking, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, StyleSheet, Alert, Platform, Linking, Modal, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Plus, Minus, ChevronLeft, FileText, Hash, Copy, Check, X } from 'lucide-react-native';
@@ -90,6 +90,8 @@ const PrintSettings = () => {
      const [isCopied, setIsCopied] = useState(false);
      const [pendingAmount, setPendingAmount] = useState('0.00');
      const [isUploading, setIsUploading] = useState(false);
+     const [showSuccessModal, setShowSuccessModal] = useState(false);
+     const [successScale] = useState(new Animated.Value(0));
 
      useEffect(() => {
           const calculateTotalPages = async () => {
@@ -221,73 +223,33 @@ const PrintSettings = () => {
           }
      };
 
-     const initiateWhatsAppSequence = async (finalAmount: string) => {
-          if (!Share) {
-               Alert.alert("Native Module Required", "WhatsApp sharing needs a custom native build.");
-               return;
-          }
+     const handleSuccess = () => {
+          setShowSuccessModal(true);
+          Animated.spring(successScale, {
+               toValue: 1,
+               tension: 50,
+               friction: 7,
+               useNativeDriver: true,
+          }).start();
+     };
 
+     const completePrintJob = async () => {
           try {
-               const shortId = Math.random().toString(36).substring(2, 6) + Date.now().toString(36).substring(4, 8);
-               const jobId = `job_${shortId}`;
-               const printConfig = {
-                    job_id: jobId,
-                    vendor_id: vendorId,
-                    copies: copies,
-                    totalPages: totalPages,
-                    pageSelection: formData.pageSelection,
-                    customRange: formData.customRange,
-                    color: formData.colorMode,
-                    final_amount: finalAmount
-               };
-
-               const jsonString = JSON.stringify(printConfig, null, 2);
-               const jsonFilePath = `${FileSystem.cacheDirectory}${jobId}.json`;
-               await FileSystem.writeAsStringAsync(jsonFilePath, jsonString, { encoding: FileSystem.EncodingType.UTF8 });
-
-               const renamedFiles = [];
-               for (let i = 0; i < uploadedFiles.length; i++) {
-                    const file = uploadedFiles[i];
-                    const extMatch = file.name.match(/\.[0-9a-z]+$/i);
-                    const ext = extMatch ? extMatch[0] : '.pdf';
-                    const fileSuffix = uploadedFiles.length > 1 ? `_${i + 1}` : '';
-                    const renamedPath = `${FileSystem.cacheDirectory}${jobId}${fileSuffix}${ext}`;
-                    await FileSystem.copyAsync({ from: file.uri, to: renamedPath });
-                    renamedFiles.push(renamedPath);
-               }
-
-               const fileUrls = [jsonFilePath, ...renamedFiles].map(path => `file://${path}`);
-               const processedPhone = (vendorPhone || '').startsWith('91') ? vendorPhone : `91${vendorPhone}`;
-               const shareOptions = {
-                    title: 'Send Print Job',
-                    social: Share.Social.WHATSAPP,
-                    whatsAppNumber: processedPhone,
-                    urls: fileUrls,
-                    type: '*/*',
-                    failOnCancel: false,
-               };
-               await Share.shareSingle(shareOptions as any);
-
-               try {
-                    const { token } = await getAuthData();
-                    const statsResponse = await fetch(`${API_URL}/vendors/increment-stats`, {
-                         method: 'POST',
-                         headers: { 
-                               'Content-Type': 'application/json',
-                               'x-auth-token': token || ''
-                          },
-                          body: JSON.stringify({
-                               vendorId: vendorId,
-                               pages: totalPages * copies
-                          })
-                     });
-                     if (!statsResponse.ok) console.warn("Failed to update stats on server");
-               } catch (statsErr) {
-                    console.error("Stats update error:", statsErr);
-               }
-          } catch (error) {
-               console.error("WhatsApp share error:", error);
-               Alert.alert("Error", "Failed to share files with vendor.");
+               const { token } = await getAuthData();
+               const statsResponse = await fetch(`${API_URL}/vendors/increment-stats`, {
+                    method: 'POST',
+                    headers: { 
+                          'Content-Type': 'application/json',
+                          'x-auth-token': token || ''
+                     },
+                     body: JSON.stringify({
+                          vendorId: vendorId,
+                          pages: totalPages * copies
+                     })
+                });
+                if (!statsResponse.ok) console.warn("Failed to update stats on server");
+          } catch (statsErr) {
+               console.error("Stats update error:", statsErr);
           }
      };
 
@@ -556,7 +518,8 @@ const PrintSettings = () => {
                                                    await performUpload();
                                                    // 2. Complete the process
                                                    setShowPaymentModal(false);
-                                                   initiateWhatsAppSequence(pendingAmount);
+                                                   await completePrintJob();
+                                                    handleSuccess();
                                               } catch (err: any) {
                                                    Alert.alert("Upload Failed", "Could not upload files to secure storage. Please check your connection.");
                                               }
@@ -571,6 +534,39 @@ const PrintSettings = () => {
                                     
                                     <Text style={styles.securityNote}>Your files will be securely stored and shared with the vendor after payment.</Text>
                               </ScrollView>
+                         </View>
+                    </View>
+               </Modal>
+
+               {/* Success Animation Modal */}
+               <Modal
+                    visible={showSuccessModal}
+                    transparent={true}
+                    animationType="fade"
+               >
+                    <View style={styles.successOverlay}>
+                         <View style={styles.successCard}>
+                              <Animated.View style={[
+                                   styles.successIconCircle,
+                                   { transform: [{ scale: successScale }] }
+                              ]}>
+                                   <Check size={48} color="#ffffff" strokeWidth={4} />
+                              </Animated.View>
+                              
+                              <Text style={styles.successTitle}>Files Uploaded!</Text>
+                              <Text style={styles.successSubtitle}>
+                                   Your print job has been securely sent to the cloud. The vendor will process it once they verify the payment.
+                              </Text>
+                              
+                              <TouchableOpacity 
+                                   style={styles.successCloseBtn}
+                                   onPress={() => {
+                                        setShowSuccessModal(false);
+                                        router.replace('/home');
+                                   }}
+                              >
+                                   <Text style={styles.successCloseText}>Back to Home</Text>
+                              </TouchableOpacity>
                          </View>
                     </View>
                </Modal>
@@ -805,6 +801,73 @@ const styles = StyleSheet.create({
           textAlign: 'center',
           fontWeight: '600',
           lineHeight: 18,
+     },
+     successOverlay: {
+          flex: 1,
+          backgroundColor: 'rgba(46, 53, 99, 0.9)',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 24,
+     },
+     successCard: {
+          backgroundColor: '#ffffff',
+          borderRadius: 32,
+          padding: 32,
+          width: '100%',
+          alignItems: 'center',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 20 },
+          shadowOpacity: 0.3,
+          shadowRadius: 30,
+          elevation: 20,
+     },
+     successIconCircle: {
+          width: 100,
+          height: 100,
+          borderRadius: 50,
+          backgroundColor: '#10b981',
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginBottom: 24,
+          shadowColor: '#10b981',
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.4,
+          shadowRadius: 12,
+          elevation: 8,
+     },
+     successTitle: {
+          fontSize: 24,
+          fontWeight: '800',
+          color: '#2e3563',
+          marginBottom: 12,
+          textAlign: 'center',
+     },
+     successSubtitle: {
+          fontSize: 15,
+          color: '#64748b',
+          textAlign: 'center',
+          lineHeight: 22,
+          marginBottom: 32,
+          paddingHorizontal: 8,
+     },
+     successCloseBtn: {
+          backgroundColor: '#1271dd',
+          paddingVertical: 16,
+          paddingHorizontal: 32,
+          borderRadius: 16,
+          width: '100%',
+          alignItems: 'center',
+          shadowColor: '#1271dd',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.3,
+          shadowRadius: 8,
+          elevation: 5,
+     },
+     successCloseText: {
+          color: '#ffffff',
+          fontSize: 16,
+          fontWeight: '700',
+          letterSpacing: 0.5,
      },
 });
 
