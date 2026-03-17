@@ -206,9 +206,9 @@ const PrintSettings = () => {
                     });
 
                     if (uploadRes.status < 200 || uploadRes.status >= 300) {
-                         console.log(`[DEBUG] R2 Response Status: ${uploadRes.status}`);
-                         console.log(`[DEBUG] R2 Response Body: ${uploadRes.body}`);
-                         throw new Error(`Cloud storage upload failed with status ${uploadRes.status}`);
+                         const errorMsg = uploadRes.body || `Status ${uploadRes.status}`;
+                         console.log(`[DEBUG] R2 Error: ${errorMsg}`);
+                         throw new Error(`Cloud storage upload failed: ${errorMsg}`);
                     }
                     return filePath;
                }));
@@ -216,6 +216,7 @@ const PrintSettings = () => {
                return uploadResults;
           } catch (error: any) {
                console.error("Upload to R2 failed:", error);
+               Alert.alert("Upload Failed", error.message);
                throw error;
           } finally {
                setIsUploading(false);
