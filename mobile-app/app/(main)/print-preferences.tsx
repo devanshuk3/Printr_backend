@@ -5,7 +5,11 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Plus, Minus, ChevronLeft, FileText, Hash, Copy, Check, X } from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { API_URL } from "../../constants/apiConfig";
+import { supabase } from "../../utils/supabaseClient";
+import { SUPABASE_BUCKET_NAME } from "../../constants/supabaseConfig";
+import { decode } from "base64-arraybuffer";
 import * as IntentLauncher from 'expo-intent-launcher';
+import { ActivityIndicator } from 'react-native';
 import Constants from 'expo-constants';
 // Fallback for Clipboard if native module is missing
 let Clipboard: any;
@@ -87,6 +91,7 @@ const PrintSettings = () => {
      const [showPaymentModal, setShowPaymentModal] = useState(false);
      const [isCopied, setIsCopied] = useState(false);
      const [pendingAmount, setPendingAmount] = useState('0.00');
+     const [isUploading, setIsUploading] = useState(false);
 
      useEffect(() => {
           const calculateTotalPages = async () => {
@@ -241,25 +246,56 @@ const PrintSettings = () => {
           }
 
           try {
-               if (!upiId) {
-                    Alert.alert("Payment Error", "This vendor has not set up their UPI ID yet. Please contact them directly.");
-                    return;
-               }
+                if (!upiId) {
+                     Alert.alert("Payment Error", "This vendor has not set up their UPI ID yet. Please contact them directly.");
+                     return;
+                }
 
-               if (!vendorPhone) {
-                    Alert.alert("Contact Error", "This vendor has no phone number listed for WhatsApp sharing.");
-                    return;
-               }
+                if (!vendorPhone) {
+                     Alert.alert("Contact Error", "This vendor has no phone number listed for WhatsApp sharing.");
+                     return;
+                }
+
+                setIsUploading(true);
+                // Upload files to Supabase before showing payment modal
+                const uploadResults = await Promise.all(uploadedFiles.map(async (file) => {
+                     try {
+                          const base64 = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.Base64 });
+                          const sanitizedVendorId = vendorId ? vendorId.trim().replace(/\s+/g, '_') : 'general';
+                          const sanitizedFileName = file.name.replace(/\s+/g, '_');
+                          const filePath = `${sanitizedVendorId}/${Date.now()}_${sanitizedFileName}`;
+                          
+                          const arrayBuffer = decode(base64);
+                          const { data, error } = await supabase.storage
+                               .from(SUPABASE_BUCKET_NAME)
+                               .upload(filePath, arrayBuffer, {
+                                    contentType: file.mimeType || 'application/octet-stream',
+                                    upsert: true
+                               });
+
+                          if (error) {
+                               console.error(`Supabase Storage Error for ${file.name}:`, error);
+                               throw new Error(`Cloud storage error for ${file.name}: ${error.message}`);
+                          }
+                          return data.path;
+                     } catch (err: any) {
+                          console.error(`Upload error for ${file.name}:`, err);
+                          throw err;
+                     }
+                }));
+
+                console.log("All files uploaded successfully:", uploadResults);
 
                 const randomVerification = (Math.floor(Math.random() * 19) + 1) / 100;
                 const finalAmount = (totalCost + randomVerification).toFixed(2);
 
-                // Directly show the manual payment modal without trying to open apps automatically
                 setPendingAmount(finalAmount);
                 setShowPaymentModal(true);
-           } catch (error) {
-                console.error("Checkout error:", error);
-                Alert.alert("Error", "Something went wrong during checkout.");
+           } catch (error: any) {
+                console.error("Checkout/Upload error:", error);
+                Alert.alert("Error", error.message || "Failed to upload files or prepare checkout.");
+           } finally {
+                setIsUploading(false);
            }
       };
 
@@ -307,12 +343,17 @@ const PrintSettings = () => {
                         <Text style={styles.stickLabel}>Total Cost</Text>
                         <Text style={styles.stickValue}>₹{totalCost.toFixed(2)}</Text>
                     </View>
-                    <TouchableOpacity
-                        style={styles.stickBtn}
-                        onPress={handleCheckout}
-                    >
-                        <Text style={styles.stickBtnText}>PRINT NOW</Text>
-                    </TouchableOpacity>
+                     <TouchableOpacity
+                         style={[styles.stickBtn, isUploading && { opacity: 0.7 }]}
+                         onPress={handleCheckout}
+                         disabled={isUploading}
+                     >
+                         {isUploading ? (
+                              <ActivityIndicator color="#ffffff" size="small" />
+                         ) : (
+                              <Text style={styles.stickBtnText}>PRINT NOW</Text>
+                         )}
+                     </TouchableOpacity>
                </View>
 
                <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 100 }]}>
