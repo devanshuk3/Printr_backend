@@ -149,6 +149,7 @@ router.post('/files/upload-url', [
     const command = new PutObjectCommand({
       Bucket: bucketName,
       Key: filePath,
+      ChecksumAlgorithm: undefined, // Explicitly disable to prevent CRC32 headers
       // No ContentType here: SigV4 signature will be header-agnostic
     });
 
