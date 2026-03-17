@@ -141,13 +141,10 @@ router.post('/files/upload-url', [
     const cleanFileName = fileName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
     const filePath = `${sanitizedVendorId}/${Date.now()}_${cleanFileName}.${extension}`;
 
-    // We remove ContentType from the command during signing.
-    // This makes the pre-signed URL more flexible and avoids 403 errors 
-    // when the mobile app sends a slightly different Content-Type or case.
     const command = new PutObjectCommand({
       Bucket: process.env.R2_BUCKET_NAME,
       Key: filePath,
-      // ContentType: contentType, // Skip signing this to avoid strict header matching
+      ContentType: 'application/octet-stream', // Use a neutral type to avoid signature mismatches
     });
 
     const uploadUrl = await getSignedUrl(r2, command, { expiresIn: 600 });
