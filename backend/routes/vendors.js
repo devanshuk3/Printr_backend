@@ -1,17 +1,29 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const supabase = require('../supabase');
+const r2 = require('../r2');
+const { GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { param, body } = require('express-validator');
 const { validate } = require('../middleware/validator');
+const auth = require('../middleware/auth');
 
-// Verify Vendor ID
+/**
+ * @helper Sanitize error message for production
+ */
+const handleError = (res, err, customMsg = "Server Error") => {
+  console.error(`${customMsg}:`, err.message || err);
+  return res.status(500).json({ 
+    message: process.env.NODE_ENV === 'production' ? customMsg : `${customMsg}: ${err.message}` 
+  });
+};
+
+// Verify Vendor ID (Publicly accessible but sanitized)
 router.get('/verify/:vendorId', [
-  param('vendorId').trim().notEmpty().withMessage('Vendor ID is required'),
+  param('vendorId').trim().notEmpty().withMessage('Vendor ID is required').escape(),
   validate
 ], async (req, res) => {
   const { vendorId } = req.params;
-  console.log(`Verifying vendor: ${vendorId}`);
 
   try {
     const result = await db.supabaseQuery(
@@ -19,41 +31,36 @@ router.get('/verify/:vendorId', [
       [vendorId]
     );
 
-    console.log(`Query result rows: ${result.rows.length}`);
     if (result.rows.length === 0) {
-      console.log(`Vendor ${vendorId} not found in database.`);
       return res.status(404).json({ message: "Vendor not found" });
     }
 
-    console.log(`Vendor found: ${JSON.stringify(result.rows[0])}`);
     res.json(result.rows[0]);
   } catch (err) {
-    console.error('Vendor Verify Error:', err.message);
-    res.status(500).json({ message: "Server error: " + err.message });
+    handleError(res, err, "Vendor verification failed");
   }
 });
 
-// Get all vendors (for Admin)
-router.get('/all', async (req, res) => {
+// Get all vendors (for Admin - should be further protected)
+router.get('/all', auth, async (req, res) => {
   try {
     const result = await db.supabaseQuery('SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, phone, upi_id, pages_printed, platform_fee FROM vendors ORDER BY shop_name ASC');
     res.json(result.rows);
   } catch (err) {
-    console.error('All Vendors Error:', err.message);
-    res.status(500).json({ message: "Server error: " + err.message });
+    handleError(res, err, "Fetching vendors failed");
   }
 });
 
-// Increment vendor stats after successful print
+// Increment vendor stats after successful print (PROTECTED)
 router.post('/increment-stats', [
-  body('vendorId').trim().notEmpty().withMessage('Vendor ID is required'),
+  auth, // Require valid token
+  body('vendorId').trim().notEmpty().withMessage('Vendor ID is required').escape(),
   body('pages').isInt({ min: 1 }).withMessage('Pages must be at least 1'),
   validate
 ], async (req, res) => {
   const { vendorId, pages } = req.body;
 
   try {
-    // 1. Get vendor's current price to calculate fee increment
     const vendorRes = await db.supabaseQuery(
       'SELECT bw_price FROM vendors WHERE vendor_id = $1',
       [vendorId]
@@ -66,7 +73,6 @@ router.post('/increment-stats', [
     const bwPrice = parseFloat(vendorRes.rows[0].bw_price) || 0;
     const feeIncrement = (pages * bwPrice * 0.10);
 
-    // 2. Update stats
     await db.supabaseQuery(
       `UPDATE vendors 
        SET pages_printed = COALESCE(pages_printed, 0) + $1, 
@@ -75,37 +81,60 @@ router.post('/increment-stats', [
       [pages, feeIncrement.toFixed(2), vendorId]
     );
 
-    res.json({ message: "Stats updated successfully", increment: feeIncrement.toFixed(2) });
+    res.json({ message: "Stats updated successfully" });
   } catch (err) {
-    console.error('Increment Stats Error:', err.message);
-    res.status(500).json({ message: "Server error: " + err.message });
+    handleError(res, err, "Updating stats failed");
   }
 });
 
-// Generate a secure Signed URL for a file
-// Only valid for 1 hour
+// Generate a secure Signed URL for a file (Download/View) (PROTECTED)
 router.get('/files/:vendorId/:fileName', [
-  param('vendorId').trim().notEmpty(),
-  param('fileName').trim().notEmpty(),
+  auth,
+  param('vendorId').trim().notEmpty().escape(),
+  param('fileName').trim().notEmpty().escape(),
   validate
 ], async (req, res) => {
   const { vendorId, fileName } = req.params;
 
   try {
     const filePath = `${vendorId}/${fileName}`;
-    const { data, error } = await supabase.storage
-      .from('printr_cloud_Storage')
-      .createSignedUrl(filePath, 3600); // 1 hour expiry
+    const command = new GetObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME,
+      Key: filePath,
+    });
 
-    if (error) {
-      console.error('Supabase Signed URL Error:', error.message);
-      return res.status(404).json({ message: "File not found or access denied" });
-    }
-
-    res.json({ signedUrl: data.signedUrl });
+    const signedUrl = await getSignedUrl(r2, command, { expiresIn: 3600 });
+    res.json({ signedUrl });
   } catch (err) {
-    console.error('File Access Error:', err.message);
-    res.status(500).json({ message: "Server error" });
+    handleError(res, err, "Generating view URL failed");
+  }
+});
+
+// Generate a secure Pre-signed URL for UPLOAD (PROTECTED)
+router.post('/files/upload-url', [
+  auth,
+  body('vendorId').trim().notEmpty().withMessage('Vendor ID is required').escape(),
+  body('fileName').trim().notEmpty().withMessage('File name is required').escape(),
+  body('contentType').trim().notEmpty().withMessage('Content Type is required'),
+  validate
+], async (req, res) => {
+  const { vendorId, fileName, contentType } = req.body;
+
+  try {
+    const sanitizedVendorId = vendorId.trim().replace(/\s+/g, '_');
+    const sanitizedFileName = fileName.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9.\-_]/g, '');
+    const filePath = `${sanitizedVendorId}/${Date.now()}_${sanitizedFileName}`;
+
+    const command = new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME,
+      Key: filePath,
+      ContentType: contentType,
+    });
+
+    const uploadUrl = await getSignedUrl(r2, command, { expiresIn: 600 });
+    res.json({ uploadUrl, filePath });
+  } catch (err) {
+    handleError(res, err, "Generating upload URL failed");
   }
 });
 

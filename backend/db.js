@@ -5,15 +5,17 @@ require('dotenv').config();
 const pool = process.env.SUPABASE_URL
   ? new Pool({
       connectionString: process.env.SUPABASE_URL,
-      ssl: { rejectUnauthorized: false }
+      ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: true } : 
+           (process.env.DB_SSL === 'false' ? { rejectUnauthorized: false } : false)
     })
   : new Pool({
-      // fallback just in case they revert to setting DB_USER etc
       user: process.env.DB_USER,
       host: process.env.DB_HOST,
       database: process.env.DB_NAME,
       password: process.env.DB_PASSWORD,
       port: process.env.DB_PORT,
+      ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: true } : 
+           (process.env.DB_SSL === 'false' ? { rejectUnauthorized: false } : false)
     });
 
 module.exports = {
