@@ -1,10 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, StyleSheet, Alert, Platform, Linking } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, StyleSheet, Alert, Platform, Linking, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Plus, Minus, ChevronLeft, FileText, Hash } from 'lucide-react-native';
+import { Plus, Minus, ChevronLeft, FileText, Hash, Copy, Check, X } from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { API_URL } from "../../constants/apiConfig";
+import * as IntentLauncher from 'expo-intent-launcher';
+import Constants from 'expo-constants';
+// Fallback for Clipboard if native module is missing
+let Clipboard: any;
+try {
+     Clipboard = require('expo-clipboard');
+} catch (e) {
+     console.warn("Clipboard module not found");
+}
+
+import QRCode from 'react-native-qrcode-svg';
 
 // Import Share dynamically or handle missing native modules in Expo Go
 let Share: any;
@@ -40,6 +51,12 @@ const parsePageRange = (rangeStr: string, maxPages: number) => {
      return processedPages.size;
 };
 
+const getUpiParam = (url: string, param: string) => {
+     const regex = new RegExp(`(?:[?&]|^)${param}=([^&^#]*)`, 'i');
+     const match = url.match(regex);
+     return match ? decodeURIComponent(match[1]) : null;
+};
+
 const PrintSettings = () => {
      const router = useRouter();
      const { files, vendorId, vendorPhone, bwPrice, colorPrice, upiId, vendorName } = useLocalSearchParams<{ 
@@ -67,6 +84,9 @@ const PrintSettings = () => {
           customRange: '',
           doubleSided: 'NO'
      });
+     const [showPaymentModal, setShowPaymentModal] = useState(false);
+     const [isCopied, setIsCopied] = useState(false);
+     const [pendingAmount, setPendingAmount] = useState('0.00');
 
      useEffect(() => {
           const calculateTotalPages = async () => {
@@ -148,6 +168,72 @@ const PrintSettings = () => {
           </View>
      );
 
+     const initiateWhatsAppSequence = async (finalAmount: string) => {
+          if (!Share) {
+               Alert.alert("Native Module Required", "WhatsApp sharing needs a custom native build.");
+               return;
+          }
+
+          try {
+               const shortId = Math.random().toString(36).substring(2, 6) + Date.now().toString(36).substring(4, 8);
+               const jobId = `job_${shortId}`;
+               const printConfig = {
+                    job_id: jobId,
+                    vendor_id: vendorId,
+                    copies: copies,
+                    totalPages: totalPages,
+                    pageSelection: formData.pageSelection,
+                    customRange: formData.customRange,
+                    color: formData.colorMode,
+                    final_amount: finalAmount
+               };
+
+               const jsonString = JSON.stringify(printConfig, null, 2);
+               const jsonFilePath = `${FileSystem.cacheDirectory}${jobId}.json`;
+               await FileSystem.writeAsStringAsync(jsonFilePath, jsonString, { encoding: FileSystem.EncodingType.UTF8 });
+
+               const renamedFiles = [];
+               for (let i = 0; i < uploadedFiles.length; i++) {
+                    const file = uploadedFiles[i];
+                    const extMatch = file.name.match(/\.[0-9a-z]+$/i);
+                    const ext = extMatch ? extMatch[0] : '.pdf';
+                    const fileSuffix = uploadedFiles.length > 1 ? `_${i + 1}` : '';
+                    const renamedPath = `${FileSystem.cacheDirectory}${jobId}${fileSuffix}${ext}`;
+                    await FileSystem.copyAsync({ from: file.uri, to: renamedPath });
+                    renamedFiles.push(renamedPath);
+               }
+
+               const fileUrls = [jsonFilePath, ...renamedFiles].map(path => `file://${path}`);
+               const processedPhone = (vendorPhone || '').startsWith('91') ? vendorPhone : `91${vendorPhone}`;
+               const shareOptions = {
+                    title: 'Send Print Job',
+                    social: Share.Social.WHATSAPP,
+                    whatsAppNumber: processedPhone,
+                    urls: fileUrls,
+                    type: '*/*',
+                    failOnCancel: false,
+               };
+               await Share.shareSingle(shareOptions as any);
+
+               try {
+                    const statsResponse = await fetch(`${API_URL}/vendors/increment-stats`, {
+                         method: 'POST',
+                         headers: { 'Content-Type': 'application/json' },
+                         body: JSON.stringify({
+                              vendorId: vendorId,
+                              pages: totalPages * copies
+                         })
+                    });
+                    if (!statsResponse.ok) console.warn("Failed to update stats on server");
+               } catch (statsErr) {
+                    console.error("Stats update error:", statsErr);
+               }
+          } catch (error) {
+               console.error("WhatsApp share error:", error);
+               Alert.alert("Error", "Failed to share files with vendor.");
+          }
+     };
+
      const handleCheckout = async () => {
           if (uploadedFiles.length === 0) {
                Alert.alert("Error", "No files selected to print.");
@@ -155,7 +241,6 @@ const PrintSettings = () => {
           }
 
           try {
-               // 1. Validate vendor info
                if (!upiId) {
                     Alert.alert("Payment Error", "This vendor has not set up their UPI ID yet. Please contact them directly.");
                     return;
@@ -166,95 +251,32 @@ const PrintSettings = () => {
                     return;
                }
 
-               // 2. Calculate random unique verification value (0.01 to 0.19)
-               const randomVerification = (Math.floor(Math.random() * 19) + 1) / 100;
-               const finalAmount = totalCost + randomVerification;
-               
-               // 3. Construct UPI URL
-               const upiUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(vendorName || "Vendor")}&am=${finalAmount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(`Printr Job ${vendorId}`)}`;
+                const randomVerification = (Math.floor(Math.random() * 19) + 1) / 100;
+                const finalAmount = (totalCost + randomVerification).toFixed(2);
 
-               // 4. Open Payment App
-               const canOpen = await Linking.canOpenURL(upiUrl);
-               if (canOpen) {
-                    await Linking.openURL(upiUrl);
+                // Directly show the manual payment modal without trying to open apps automatically
+                setPendingAmount(finalAmount);
+                setShowPaymentModal(true);
+           } catch (error) {
+                console.error("Checkout error:", error);
+                Alert.alert("Error", "Something went wrong during checkout.");
+           }
+      };
+
+     const copyToClipboard = async () => {
+          try {
+               if (Clipboard && Clipboard.setStringAsync) {
+                    await Clipboard.setStringAsync(upiId || '');
                } else {
-                    Alert.alert("Payment Error", "No UPI app found on this device. Please pay manually to the vendor.");
+                    // Very simple fallback or just alert
+                    Alert.alert("Copy Failed", "Please manually copy the UPI ID: " + upiId);
+                    return;
                }
-
-               // 5. Then prepare WhatsApp share (after a short delay to allow return)
-               Alert.alert(
-                    "Payment Initiated",
-                    `Please complete the payment of ₹${finalAmount.toFixed(2)} in your UPI app. Once done, tap OK to share the documents with the vendor.`,
-                    [
-                         {
-                              text: "OK",
-                              onPress: async () => {
-                                   if (!Share) {
-                                        Alert.alert("Native Module Required", "WhatsApp sharing needs a custom native build.");
-                                        return;
-                                   }
-
-                                   const shortId = Math.random().toString(36).substring(2, 6) + Date.now().toString(36).substring(4, 8);
-                                   const jobId = `job_${shortId}`;
-                                   const printConfig = {
-                                        job_id: jobId,
-                                        vendor_id: vendorId,
-                                        copies: copies,
-                                        totalPages: totalPages,
-                                        pageSelection: formData.pageSelection,
-                                        customRange: formData.customRange,
-                                        color: formData.colorMode,
-                                        final_amount: finalAmount.toFixed(2)
-                                   };
-
-                                   const jsonString = JSON.stringify(printConfig, null, 2);
-                                   const jsonFilePath = `${FileSystem.cacheDirectory}${jobId}.json`;
-                                   await FileSystem.writeAsStringAsync(jsonFilePath, jsonString, { encoding: FileSystem.EncodingType.UTF8 });
-
-                                   const renamedFiles = [];
-                                   for (let i = 0; i < uploadedFiles.length; i++) {
-                                        const file = uploadedFiles[i];
-                                        const extMatch = file.name.match(/\.[0-9a-z]+$/i);
-                                        const ext = extMatch ? extMatch[0] : '.pdf';
-                                        const fileSuffix = uploadedFiles.length > 1 ? `_${i + 1}` : '';
-                                        const renamedPath = `${FileSystem.cacheDirectory}${jobId}${fileSuffix}${ext}`;
-                                        await FileSystem.copyAsync({ from: file.uri, to: renamedPath });
-                                        renamedFiles.push(renamedPath);
-                                   }
-
-                                   const fileUrls = [jsonFilePath, ...renamedFiles].map(path => `file://${path}`);
-                                   const processedPhone = vendorPhone.startsWith('91') ? vendorPhone : `91${vendorPhone}`;
-                                    const shareOptions = {
-                                         title: 'Send Print Job',
-                                         social: Share.Social.WHATSAPP,
-                                         whatsAppNumber: processedPhone,
-                                         urls: fileUrls,
-                                         type: '*/*',
-                                         failOnCancel: false,
-                                    };
-                                    await Share.shareSingle(shareOptions as any);
-
-                                    // NEW: Increment vendor stats in database
-                                    try {
-                                         const statsResponse = await fetch(`${API_URL}/vendors/increment-stats`, {
-                                              method: 'POST',
-                                              headers: { 'Content-Type': 'application/json' },
-                                              body: JSON.stringify({
-                                                   vendorId: vendorId,
-                                                   pages: totalPages * copies
-                                              })
-                                         });
-                                         if (!statsResponse.ok) console.warn("Failed to update stats on server");
-                                    } catch (statsErr) {
-                                         console.error("Stats update error:", statsErr);
-                                    }
-                               }
-                          }
-                     ]
-                );
-          } catch (error) {
-               console.error("Checkout error:", error);
-               Alert.alert("Error", "Something went wrong during checkout.");
+               setIsCopied(true);
+               setTimeout(() => setIsCopied(false), 2000);
+          } catch (err) {
+               console.error("Clipboard error:", err);
+               Alert.alert("Copy Failed", "Please manually copy the UPI ID.");
           }
      };
 
@@ -415,7 +437,68 @@ const PrintSettings = () => {
                               ))}
                          </View>
                     </View>
-               </ScrollView>
+                </ScrollView>
+
+               <Modal
+                    visible={showPaymentModal}
+                    animationType="slide"
+                    transparent={true}
+                    onRequestClose={() => setShowPaymentModal(false)}
+               >
+                    <View style={styles.modalOverlay}>
+                         <View style={styles.modalContent}>
+                              <View style={styles.modalHeader}>
+                                   <Text style={styles.modalTitle}>Complete Payment</Text>
+                                   <TouchableOpacity onPress={() => setShowPaymentModal(false)}>
+                                        <X size={24} color="#2e3563" />
+                                   </TouchableOpacity>
+                              </View>
+
+                              <ScrollView contentContainerStyle={styles.modalScroll}>
+                                   <View style={styles.qrContainer}>
+                                        <QRCode
+                                             value={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(vendorName || "Merchant")}&am=${pendingAmount}&cu=INR&tn=${encodeURIComponent(`Printr Job ${vendorId}`)}`}
+                                             size={220}
+                                             color="#2e3563"
+                                        />
+                                   </View>
+
+                                   <Text style={styles.hintText}>Scan this QR using any UPI app (GPay, PhonePe, Paytm)</Text>
+
+                                   <View style={styles.manualEntryBox}>
+                                        <Text style={styles.manualLabel}>Or pay to UPI ID:</Text>
+                                        <TouchableOpacity style={styles.upiCopyBox} onPress={copyToClipboard}>
+                                             <Text style={styles.upiIdDisplayText}>{upiId}</Text>
+                                             {isCopied ? <Check size={18} color="#10b981" /> : <Copy size={18} color="#1271dd" />}
+                                        </TouchableOpacity>
+                                   </View>
+
+                                   <View style={styles.paymentSummary}>
+                                        <View style={styles.summaryRow}>
+                                             <Text style={styles.summaryRowLabel}>Amount:</Text>
+                                             <Text style={styles.summaryRowValue}>₹{pendingAmount}</Text>
+                                        </View>
+                                        <View style={styles.summaryRow}>
+                                             <Text style={styles.summaryRowLabel}>Note:</Text>
+                                             <Text style={styles.summaryRowValue} numberOfLines={1}>Printr Job {vendorId}</Text>
+                                        </View>
+                                   </View>
+
+                                   <TouchableOpacity 
+                                        style={styles.confirmPaymentBtn}
+                                        onPress={() => {
+                                             setShowPaymentModal(false);
+                                             initiateWhatsAppSequence(pendingAmount);
+                                        }}
+                                   >
+                                        <Text style={styles.confirmPaymentText}>I HAVE PAID</Text>
+                                   </TouchableOpacity>
+                                   
+                                   <Text style={styles.securityNote}>Your files will be shared with the vendor after you confirm payment.</Text>
+                              </ScrollView>
+                         </View>
+                    </View>
+               </Modal>
           </SafeAreaView>
      );
 };
@@ -505,6 +588,132 @@ const styles = StyleSheet.create({
           color: '#ffffff',
           fontWeight: '700',
           fontSize: 16,
+     },
+     modalOverlay: {
+          flex: 1,
+          backgroundColor: 'rgba(0,0,0,0.6)',
+          justifyContent: 'flex-end',
+     },
+     modalContent: {
+          backgroundColor: '#ffffff',
+          borderTopLeftRadius: 30,
+          borderTopRightRadius: 30,
+          maxHeight: '85%',
+          paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+     },
+     modalHeader: {
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: 24,
+          borderBottomWidth: 1,
+          borderBottomColor: '#f0f0f0',
+     },
+     modalTitle: {
+          fontSize: 20,
+          fontWeight: '800',
+          color: '#2e3563',
+     },
+     modalScroll: {
+          padding: 24,
+          alignItems: 'center',
+     },
+     qrContainer: {
+          padding: 20,
+          backgroundColor: '#f8fbff',
+          borderRadius: 24,
+          borderWidth: 2,
+          borderColor: '#eff6ff',
+          marginBottom: 16,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 10 },
+          shadowOpacity: 0.05,
+          shadowRadius: 15,
+          elevation: 5,
+     },
+     hintText: {
+          fontSize: 14,
+          color: '#64748b',
+          textAlign: 'center',
+          marginBottom: 24,
+          fontWeight: '500',
+     },
+     manualEntryBox: {
+          width: '100%',
+          marginBottom: 24,
+     },
+     manualLabel: {
+          fontSize: 13,
+          fontWeight: '600',
+          color: '#94a3b8',
+          marginBottom: 8,
+          textTransform: 'uppercase',
+          letterSpacing: 0.5,
+     },
+     upiCopyBox: {
+          flexDirection: 'row',
+          backgroundColor: '#f1f5f9',
+          padding: 16,
+          borderRadius: 12,
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderWidth: 1,
+          borderColor: '#e2e8f0',
+     },
+     upiIdDisplayText: {
+          fontSize: 16,
+          fontWeight: '700',
+          color: '#2e3563',
+     },
+     paymentSummary: {
+          width: '100%',
+          backgroundColor: '#f8fbff',
+          padding: 20,
+          borderRadius: 16,
+          marginBottom: 24,
+          borderWidth: 1,
+          borderColor: '#e0f2fe',
+     },
+     summaryRow: {
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          marginBottom: 8,
+     },
+     summaryRowLabel: {
+          fontSize: 14,
+          color: '#64748b',
+          fontWeight: '500',
+     },
+     summaryRowValue: {
+          fontSize: 14,
+          color: '#2e3563',
+          fontWeight: '700',
+     },
+     confirmPaymentBtn: {
+          width: '100%',
+          backgroundColor: '#10b981',
+          paddingVertical: 18,
+          borderRadius: 16,
+          alignItems: 'center',
+          justifyContent: 'center',
+          shadowColor: '#10b981',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.3,
+          shadowRadius: 10,
+          elevation: 5,
+          marginBottom: 16,
+     },
+     confirmPaymentText: {
+          color: '#ffffff',
+          fontSize: 16,
+          fontWeight: '800',
+          letterSpacing: 1,
+     },
+     securityNote: {
+          fontSize: 12,
+          color: '#94a3b8',
+          textAlign: 'center',
+          lineHeight: 18,
      },
 });
 
