@@ -283,7 +283,7 @@ export default function HomePage() {
         }
 
         setIsUploading(true);
-        const newFiles = await Promise.all(filteredAssets.map(async (asset) => {
+        const uploadResults = await Promise.all(filteredAssets.map(async (asset) => {
           const fileName = asset.name;
           const destinationUri = (FileSystem.documentDirectory || "") + fileName;
 
@@ -294,27 +294,37 @@ export default function HomePage() {
           });
 
           // Upload to Supabase Storage
+          let uploadSuccess = false;
           try {
-            const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+            console.log(`Reading file from: ${destinationUri}`);
+            const base64 = await FileSystem.readAsStringAsync(destinationUri, { encoding: FileSystem.EncodingType.Base64 });
+            
             const sanitizedVendorId = vendorId ? vendorId.trim().replace(/\s+/g, '_') : 'general';
             const sanitizedFileName = fileName.replace(/\s+/g, '_');
             const filePath = `${sanitizedVendorId}/${Date.now()}_${sanitizedFileName}`;
             
+            console.log(`Uploading to bucket: ${SUPABASE_BUCKET_NAME}, path: ${filePath}`);
+            
+            const arrayBuffer = decode(base64);
             const { data, error } = await supabase.storage
               .from(SUPABASE_BUCKET_NAME)
-              .upload(filePath, decode(base64), {
+              .upload(filePath, arrayBuffer, {
                 contentType: asset.mimeType || 'application/octet-stream',
                 upsert: true
               });
 
             if (error) {
-              console.error(`Error uploading ${fileName}:`, error.message);
-              // We'll still keep the local copy for now, but log the error
+              console.error(`Supabase Storage Error for ${fileName}:`, error);
+              Alert.alert("Upload Error", `Cloud storage error for ${fileName}: ${error.message}`);
+              return null; // Signal failure
             } else {
-              console.log(`Uploaded ${fileName} to ${filePath}`);
+              console.log(`Uploaded successfully: ${data.path}`);
+              uploadSuccess = true;
             }
-          } catch (uploadErr) {
-            console.error(`Supabase upload error for ${fileName}:`, uploadErr);
+          } catch (uploadErr: any) {
+            console.error(`Unexpected upload error for ${fileName}:`, uploadErr);
+            Alert.alert("Upload Error", `Unexpected error uploading ${fileName}: ${uploadErr.message || uploadErr}`);
+            return null; // Signal failure
           }
 
           return {
@@ -324,18 +334,23 @@ export default function HomePage() {
           };
         }));
 
-        const updatedFiles = [...uploadedFiles, ...newFiles];
-        setUploadedFiles(updatedFiles);
-        setHasUploaded(true);
-        
-        // Automatically calculate pages for price preview
-        const pages = await calculatePageCount(updatedFiles);
-        setTotalPages(pages);
-        
-        if (filteredAssets.length < result.assets.length) {
-          Alert.alert("Notice", `Some files were excluded. Only PDF, Images, Word, PPT, and Excel are allowed.`);
-        } else {
-          Alert.alert("Success", `${newFiles.length} file(s) uploaded successfully.`);
+        // Filter out any nulls from failed uploads
+        const successfulFiles = uploadResults.filter((file): file is { uri: string, name: string, mimeType: string } => file !== null);
+
+        if (successfulFiles.length > 0) {
+          const updatedFiles = [...uploadedFiles, ...successfulFiles];
+          setUploadedFiles(updatedFiles);
+          setHasUploaded(true);
+          
+          // Automatically calculate pages for price preview
+          const pages = await calculatePageCount(updatedFiles);
+          setTotalPages(pages);
+          
+          if (successfulFiles.length < uploadResults.length) {
+            Alert.alert("Partial Success", `${successfulFiles.length} file(s) uploaded, but some failed. Please check your Supabase Storage policies.`);
+          } else {
+            Alert.alert("Success", `${successfulFiles.length} file(s) uploaded successfully to cloud storage.`);
+          }
         }
       }
     } catch (err) {

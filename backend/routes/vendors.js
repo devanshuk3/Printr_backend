@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const supabase = require('../supabase');
 const { param, body } = require('express-validator');
 const { validate } = require('../middleware/validator');
 
@@ -78,6 +79,33 @@ router.post('/increment-stats', [
   } catch (err) {
     console.error('Increment Stats Error:', err.message);
     res.status(500).json({ message: "Server error: " + err.message });
+  }
+});
+
+// Generate a secure Signed URL for a file
+// Only valid for 1 hour
+router.get('/files/:vendorId/:fileName', [
+  param('vendorId').trim().notEmpty(),
+  param('fileName').trim().notEmpty(),
+  validate
+], async (req, res) => {
+  const { vendorId, fileName } = req.params;
+
+  try {
+    const filePath = `${vendorId}/${fileName}`;
+    const { data, error } = await supabase.storage
+      .from('printr_cloud_Storage')
+      .createSignedUrl(filePath, 3600); // 1 hour expiry
+
+    if (error) {
+      console.error('Supabase Signed URL Error:', error.message);
+      return res.status(404).json({ message: "File not found or access denied" });
+    }
+
+    res.json({ signedUrl: data.signedUrl });
+  } catch (err) {
+    console.error('File Access Error:', err.message);
+    res.status(500).json({ message: "Server error" });
   }
 });
 
