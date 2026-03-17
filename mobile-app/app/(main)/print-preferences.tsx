@@ -5,11 +5,9 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Plus, Minus, ChevronLeft, FileText, Hash, Copy, Check, X } from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { API_URL } from "../../constants/apiConfig";
-import { supabase } from "../../utils/supabaseClient";
-import { SUPABASE_BUCKET_NAME } from "../../constants/supabaseConfig";
-import { decode } from "base64-arraybuffer";
 import * as IntentLauncher from 'expo-intent-launcher';
 import { ActivityIndicator } from 'react-native';
+import { getAuthData } from "../../utils/authStorage";
 import Constants from 'expo-constants';
 // Fallback for Clipboard if native module is missing
 let Clipboard: any;
@@ -173,6 +171,53 @@ const PrintSettings = () => {
           </View>
      );
 
+     const performUpload = async () => {
+          setIsUploading(true);
+          try {
+               const { token } = await getAuthData();
+               const uploadResults = await Promise.all(uploadedFiles.map(async (file) => {
+                    const urlResponse = await fetch(`${API_URL}/vendors/files/upload-url`, {
+                         method: 'POST',
+                         headers: { 
+                              'Content-Type': 'application/json',
+                              'x-auth-token': token || ''
+                         },
+                         body: JSON.stringify({
+                              vendorId: vendorId,
+                              fileName: file.name,
+                              contentType: file.mimeType || 'application/octet-stream'
+                         })
+                    });
+
+                    if (!urlResponse.ok) {
+                         const errorData = await urlResponse.json();
+                         throw new Error(errorData.message || "Failed to get upload URL");
+                    }
+
+                    const { uploadUrl, filePath } = await urlResponse.json();
+
+                    const uploadRes = await FileSystem.uploadAsync(uploadUrl, file.uri, {
+                         httpMethod: 'PUT',
+                         headers: {
+                              'Content-Type': file.mimeType || 'application/octet-stream'
+                         }
+                    });
+
+                    if (uploadRes.status < 200 || uploadRes.status >= 300) {
+                         throw new Error(`Cloud storage upload failed with status ${uploadRes.status}`);
+                    }
+                    return filePath;
+               }));
+               console.log("All files uploaded to R2:", uploadResults);
+               return uploadResults;
+          } catch (error: any) {
+               console.error("Upload to R2 failed:", error);
+               throw error;
+          } finally {
+               setIsUploading(false);
+          }
+     };
+
      const initiateWhatsAppSequence = async (finalAmount: string) => {
           if (!Share) {
                Alert.alert("Native Module Required", "WhatsApp sharing needs a custom native build.");
@@ -221,15 +266,19 @@ const PrintSettings = () => {
                await Share.shareSingle(shareOptions as any);
 
                try {
+                    const { token } = await getAuthData();
                     const statsResponse = await fetch(`${API_URL}/vendors/increment-stats`, {
                          method: 'POST',
-                         headers: { 'Content-Type': 'application/json' },
-                         body: JSON.stringify({
-                              vendorId: vendorId,
-                              pages: totalPages * copies
-                         })
-                    });
-                    if (!statsResponse.ok) console.warn("Failed to update stats on server");
+                         headers: { 
+                               'Content-Type': 'application/json',
+                               'x-auth-token': token || ''
+                          },
+                          body: JSON.stringify({
+                               vendorId: vendorId,
+                               pages: totalPages * copies
+                          })
+                     });
+                     if (!statsResponse.ok) console.warn("Failed to update stats on server");
                } catch (statsErr) {
                     console.error("Stats update error:", statsErr);
                }
@@ -245,59 +294,23 @@ const PrintSettings = () => {
                return;
           }
 
-          try {
-                if (!upiId) {
-                     Alert.alert("Payment Error", "This vendor has not set up their UPI ID yet. Please contact them directly.");
-                     return;
-                }
+          if (!upiId) {
+               Alert.alert("Payment Error", "This vendor has not set up their UPI ID yet. Please contact them directly.");
+               return;
+          }
 
-                if (!vendorPhone) {
-                     Alert.alert("Contact Error", "This vendor has no phone number listed for WhatsApp sharing.");
-                     return;
-                }
+          if (!vendorPhone) {
+               Alert.alert("Contact Error", "This vendor has no phone number listed for WhatsApp sharing.");
+               return;
+          }
 
-                setIsUploading(true);
-                // Upload files to Supabase before showing payment modal
-                const uploadResults = await Promise.all(uploadedFiles.map(async (file) => {
-                     try {
-                          const base64 = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.Base64 });
-                          const sanitizedVendorId = vendorId ? vendorId.trim().replace(/\s+/g, '_') : 'general';
-                          const sanitizedFileName = file.name.replace(/\s+/g, '_');
-                          const filePath = `${sanitizedVendorId}/${Date.now()}_${sanitizedFileName}`;
-                          
-                          const arrayBuffer = decode(base64);
-                          const { data, error } = await supabase.storage
-                               .from(SUPABASE_BUCKET_NAME)
-                               .upload(filePath, arrayBuffer, {
-                                    contentType: file.mimeType || 'application/octet-stream',
-                                    upsert: true
-                               });
-
-                          if (error) {
-                               console.error(`Supabase Storage Error for ${file.name}:`, error);
-                               throw new Error(`Cloud storage error for ${file.name}: ${error.message}`);
-                          }
-                          return data.path;
-                     } catch (err: any) {
-                          console.error(`Upload error for ${file.name}:`, err);
-                          throw err;
-                     }
-                }));
-
-                console.log("All files uploaded successfully:", uploadResults);
-
-                const randomVerification = (Math.floor(Math.random() * 19) + 1) / 100;
-                const finalAmount = (totalCost + randomVerification).toFixed(2);
-
-                setPendingAmount(finalAmount);
-                setShowPaymentModal(true);
-           } catch (error: any) {
-                console.error("Checkout/Upload error:", error);
-                Alert.alert("Error", error.message || "Failed to upload files or prepare checkout.");
-           } finally {
-                setIsUploading(false);
-           }
-      };
+          // Calculate final amount with random verification decimals
+          const randomVerification = (Math.floor(Math.random() * 19) + 1) / 100;
+          const finalAmount = (totalCost + randomVerification).toFixed(2);
+          
+          setPendingAmount(finalAmount);
+          setShowPaymentModal(true);
+     };
 
      const copyToClipboard = async () => {
           try {
@@ -525,17 +538,35 @@ const PrintSettings = () => {
                                         </View>
                                    </View>
 
-                                   <TouchableOpacity 
-                                        style={styles.confirmPaymentBtn}
-                                        onPress={() => {
-                                             setShowPaymentModal(false);
-                                             initiateWhatsAppSequence(pendingAmount);
-                                        }}
-                                   >
-                                        <Text style={styles.confirmPaymentText}>I HAVE PAID</Text>
-                                   </TouchableOpacity>
-                                   
-                                   <Text style={styles.securityNote}>Your files will be shared with the vendor after you confirm payment.</Text>
+                                    <View style={styles.verificationNote}>
+                                         <Text style={styles.verificationNoteText}>
+                                              * Printing will only be done when the payment is verified by the vendor
+                                         </Text>
+                                    </View>
+
+                                    <TouchableOpacity 
+                                         style={[styles.confirmPaymentBtn, isUploading && { opacity: 0.7 }]}
+                                         disabled={isUploading}
+                                         onPress={async () => {
+                                              try {
+                                                   // 1. Upload to R2 first
+                                                   await performUpload();
+                                                   // 2. Complete the process
+                                                   setShowPaymentModal(false);
+                                                   initiateWhatsAppSequence(pendingAmount);
+                                              } catch (err: any) {
+                                                   Alert.alert("Upload Failed", "Could not upload files to secure storage. Please check your connection.");
+                                              }
+                                         }}
+                                    >
+                                         {isUploading ? (
+                                              <ActivityIndicator color="#ffffff" size="small" />
+                                         ) : (
+                                              <Text style={styles.confirmPaymentText}>I HAVE PAID</Text>
+                                         )}
+                                    </TouchableOpacity>
+                                    
+                                    <Text style={styles.securityNote}>Your files will be securely stored and shared with the vendor after payment.</Text>
                               </ScrollView>
                          </View>
                     </View>
@@ -754,6 +785,22 @@ const styles = StyleSheet.create({
           fontSize: 12,
           color: '#94a3b8',
           textAlign: 'center',
+          lineHeight: 18,
+     },
+     verificationNote: {
+          backgroundColor: '#fff4e5',
+          padding: 12,
+          borderRadius: 10,
+          marginBottom: 16,
+          borderWidth: 1,
+          borderColor: '#ffe8cc',
+          width: '100%',
+     },
+     verificationNoteText: {
+          fontSize: 12,
+          color: '#d97706',
+          textAlign: 'center',
+          fontWeight: '600',
           lineHeight: 18,
      },
 });

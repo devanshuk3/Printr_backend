@@ -121,9 +121,15 @@ router.post('/files/upload-url', [
   const { vendorId, fileName, contentType } = req.body;
 
   try {
+    if (!process.env.R2_BUCKET_NAME) {
+      throw new Error("R2_BUCKET_NAME is not defined in environment variables");
+    }
+
     const sanitizedVendorId = vendorId.trim().replace(/\s+/g, '_');
     const sanitizedFileName = fileName.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9.\-_]/g, '');
     const filePath = `${sanitizedVendorId}/${Date.now()}_${sanitizedFileName}`;
+
+    console.log(`Generating upload URL for: ${filePath} in bucket: ${process.env.R2_BUCKET_NAME}`);
 
     const command = new PutObjectCommand({
       Bucket: process.env.R2_BUCKET_NAME,
@@ -134,6 +140,7 @@ router.post('/files/upload-url', [
     const uploadUrl = await getSignedUrl(r2, command, { expiresIn: 600 });
     res.json({ uploadUrl, filePath });
   } catch (err) {
+    console.error("R2 Upload URL Error Detail:", err);
     handleError(res, err, "Generating upload URL failed");
   }
 });
