@@ -141,19 +141,19 @@ router.post('/files/upload-url', [
     const cleanFileName = fileName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
     const filePath = `${sanitizedVendorId}/${Date.now()}_${cleanFileName}.${extension}`;
 
+    const bucketName = process.env.R2_BUCKET_NAME ? process.env.R2_BUCKET_NAME.trim() : '';
+    if (!bucketName) {
+      throw new Error("R2_BUCKET_NAME is missing on server");
+    }
+
     const command = new PutObjectCommand({
-      Bucket: process.env.R2_BUCKET_NAME,
+      Bucket: bucketName,
       Key: filePath,
-      ContentType: 'application/octet-stream', // Use a neutral type to avoid signature mismatches
+      // No ContentType: This makes the signature 'header-agnostic' so Expo won't break it
     });
 
     const uploadUrl = await getSignedUrl(r2, command, { expiresIn: 600 });
-    res.json({ 
-      uploadUrl, 
-      filePath, 
-      bucket: process.env.R2_BUCKET_NAME,
-      signedFor: filePath
-    });
+    res.json({ uploadUrl, filePath, bucket: bucketName });
   } catch (err) {
     console.error("R2 Upload URL Error Detail:", err);
     handleError(res, err, "Generating upload URL failed");
