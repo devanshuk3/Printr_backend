@@ -149,7 +149,7 @@ router.post('/files/upload-url', [
     const command = new PutObjectCommand({
       Bucket: bucketName,
       Key: filePath,
-      // No ContentType: This makes the signature 'header-agnostic' so Expo won't break it
+      ContentType: 'application/octet-stream', // Hardcoded for signature stability
     });
 
     const uploadUrl = await getSignedUrl(r2, command, { expiresIn: 600 });

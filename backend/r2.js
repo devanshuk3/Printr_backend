@@ -5,7 +5,7 @@ console.log('Initializing R2 S3 Client...');
 const endpoint = process.env.R2_ENDPOINT ? process.env.R2_ENDPOINT.trim().replace(/\/$/, '') : '';
 
 const r2 = new S3Client({
-  region: 'auto', // Cloudflare R2 preference
+  region: 'us-east-1', // Fixed for SigV4 compliance
   endpoint: endpoint,
   forcePathStyle: true,
   credentials: {

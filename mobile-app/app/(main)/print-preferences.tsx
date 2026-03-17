@@ -195,18 +195,23 @@ const PrintSettings = () => {
                     }
 
                     const { uploadUrl, filePath } = await urlResponse.json();
-                    console.log(`[DEBUG] Attempting upload to: ${uploadUrl}`);
+                    
+                    // Convert local file to Blob for fetch PUT
+                    const blobResponse = await fetch(file.uri);
+                    const blob = await blobResponse.blob();
 
-                    const uploadRes = await FileSystem.uploadAsync(uploadUrl, file.uri, {
-                         httpMethod: 'PUT',
-                         uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-                         // No headers: Agnostic upload to match server signature
+                    const uploadRes = await fetch(uploadUrl, {
+                         method: 'PUT',
+                         body: blob,
+                         headers: {
+                              'Content-Type': 'application/octet-stream'
+                         }
                     });
 
-                    if (uploadRes.status < 200 || uploadRes.status >= 300) {
-                         const errorMsg = uploadRes.body || `Status ${uploadRes.status}`;
-                         console.log(`[DEBUG] R2 Error: ${errorMsg}`);
-                         throw new Error(`Cloud storage upload failed: ${errorMsg}`);
+                    if (!uploadRes.ok) {
+                         const errorBody = await uploadRes.text();
+                         console.log(`[DEBUG] R2 Error: ${errorBody}`);
+                         throw new Error(`Cloud storage upload failed: ${errorBody}`);
                     }
                     return filePath;
                }));
