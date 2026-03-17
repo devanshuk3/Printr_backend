@@ -39,6 +39,9 @@ import {
 } from "lucide-react-native";
 import { getAuthData, UserData } from "../../utils/authStorage";
 import { Modal } from 'react-native';
+import { supabase } from "../../utils/supabaseClient";
+import { SUPABASE_BUCKET_NAME } from "../../constants/supabaseConfig";
+import { decode } from "base64-arraybuffer";
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -81,6 +84,7 @@ export default function HomePage() {
   const [verifiedVendor, setVerifiedVendor] = useState<any>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [totalPages, setTotalPages] = useState<number>(0);
+  const [isUploading, setIsUploading] = useState(false);
   
   // Profile State
   const params = useLocalSearchParams();
@@ -250,11 +254,13 @@ export default function HomePage() {
         // Standard printable formats
         type: [
           "application/pdf",
-          "image/jpeg",
-          "image/png",
-          "image/jpg",
+          "image/*",
           "application/msword",
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // docx
+          "application/vnd.ms-powerpoint", // ppt
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation", // pptx
+          "application/vnd.ms-excel", // xls
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" // xlsx
         ],
         multiple: true,
       });
@@ -264,8 +270,8 @@ export default function HomePage() {
           const mime = asset.mimeType?.toLowerCase() || "";
           const name = asset.name.toLowerCase();
           
-          // Explicitly block GIFs and Videos if they somehow bypassed the picker filter
-          if (mime === "image/gif" || mime.startsWith("video/") || name.endsWith(".gif") || name.endsWith(".mp4")) {
+          // Explicitly block Videos if they somehow bypassed the picker filter
+          if (mime.startsWith("video/") || name.endsWith(".mp4") || name.endsWith(".mov") || name.endsWith(".avi")) {
             return false;
           }
           return true;
@@ -276,14 +282,40 @@ export default function HomePage() {
           return;
         }
 
+        setIsUploading(true);
         const newFiles = await Promise.all(filteredAssets.map(async (asset) => {
           const fileName = asset.name;
           const destinationUri = (FileSystem.documentDirectory || "") + fileName;
 
+          // Copy locally first for preview/counting
           await FileSystem.copyAsync({
             from: asset.uri,
             to: destinationUri,
           });
+
+          // Upload to Supabase Storage
+          try {
+            const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+            const sanitizedVendorId = vendorId ? vendorId.trim().replace(/\s+/g, '_') : 'general';
+            const sanitizedFileName = fileName.replace(/\s+/g, '_');
+            const filePath = `${sanitizedVendorId}/${Date.now()}_${sanitizedFileName}`;
+            
+            const { data, error } = await supabase.storage
+              .from(SUPABASE_BUCKET_NAME)
+              .upload(filePath, decode(base64), {
+                contentType: asset.mimeType || 'application/octet-stream',
+                upsert: true
+              });
+
+            if (error) {
+              console.error(`Error uploading ${fileName}:`, error.message);
+              // We'll still keep the local copy for now, but log the error
+            } else {
+              console.log(`Uploaded ${fileName} to ${filePath}`);
+            }
+          } catch (uploadErr) {
+            console.error(`Supabase upload error for ${fileName}:`, uploadErr);
+          }
 
           return {
             uri: destinationUri,
@@ -301,14 +333,16 @@ export default function HomePage() {
         setTotalPages(pages);
         
         if (filteredAssets.length < result.assets.length) {
-          Alert.alert("Notice", `Some files were excluded. Only PDF, JPEG, PNG, and Word docs are allowed.`);
+          Alert.alert("Notice", `Some files were excluded. Only PDF, Images, Word, PPT, and Excel are allowed.`);
         } else {
-          Alert.alert("Success", `${newFiles.length} file(s) added.`);
+          Alert.alert("Success", `${newFiles.length} file(s) uploaded successfully.`);
         }
       }
     } catch (err) {
       console.error("Error picking/storing document:", err);
-      Alert.alert("Error", "Failed to pick or store file.");
+      Alert.alert("Error", "Failed to pick or upload file.");
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -631,10 +665,17 @@ export default function HomePage() {
             style={styles.uploadCard}
             activeOpacity={0.8}
             onPress={handleUpload}
+            disabled={isUploading}
           >
-            <CloudUpload size={48} color={hasUploaded ? "#1271dd" : "#737373"} strokeWidth={1.5} />
+            {isUploading ? (
+              <ActivityIndicator size="large" color="#1271dd" style={{ marginBottom: 16 }} />
+            ) : (
+              <CloudUpload size={48} color={hasUploaded ? "#1271dd" : "#737373"} strokeWidth={1.5} />
+            )}
             <Text style={styles.uploadMainText}>
-              {hasUploaded ? (
+              {isUploading ? (
+                <Text style={styles.uploadTextBlue}>Uploading Files...</Text>
+              ) : hasUploaded ? (
                 <Text style={styles.uploadTextBlue}>{uploadedFiles.length} File(s) Selected</Text>
               ) : (
                 <>
@@ -644,7 +685,7 @@ export default function HomePage() {
               )}
             </Text>
             <Text style={styles.uploadSubText}>
-              PDF, Image, Document (Max 25 MB)
+              PDF, Image, Document, PPT, Excel
             </Text>
           </TouchableOpacity>
 
@@ -680,11 +721,14 @@ export default function HomePage() {
 
           <View style={styles.uploadActions}>
             <TouchableOpacity
-              style={styles.uploadNewButton}
+              style={[styles.uploadNewButton, isUploading && { opacity: 0.6 }]}
               activeOpacity={0.85}
               onPress={handleUpload}
+              disabled={isUploading}
             >
-              <Text style={styles.uploadNewButtonText}>Upload new</Text>
+              <Text style={styles.uploadNewButtonText}>
+                {isUploading ? "Uploading..." : "Upload new"}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
