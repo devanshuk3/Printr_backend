@@ -7,6 +7,7 @@ const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { param, body } = require('express-validator');
 const { validate } = require('../middleware/validator');
 const auth = require('../middleware/auth');
+const checkRole = require('../middleware/roleAuth');
 
 /**
  * @helper Sanitize error message for production
@@ -20,7 +21,7 @@ const handleError = (res, err, customMsg = "Server Error") => {
 
 // Verify Vendor ID (Publicly accessible but sanitized)
 router.get('/verify/:vendorId', [
-  param('vendorId').trim().notEmpty().withMessage('Vendor ID is required').escape(),
+  param('vendorId').trim().notEmpty().withMessage('Vendor ID is required').isAlphanumeric().withMessage('Invalid characters in Vendor ID').escape(),
   validate
 ], async (req, res) => {
   const { vendorId } = req.params;
@@ -41,8 +42,8 @@ router.get('/verify/:vendorId', [
   }
 });
 
-// Get all vendors (for Admin - should be further protected)
-router.get('/all', auth, async (req, res) => {
+// Get all vendors (Only accessible by ADMINS)
+router.get('/all', [auth, checkRole(['admin'])], async (req, res) => {
   try {
     const result = await db.supabaseQuery('SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, phone, upi_id, pages_printed, platform_fee FROM vendors ORDER BY shop_name ASC');
     res.json(result.rows);
@@ -113,9 +114,18 @@ router.get('/files/:vendorId/:fileName', [
 // Generate a secure Pre-signed URL for UPLOAD (PROTECTED)
 router.post('/files/upload-url', [
   auth,
-  body('vendorId').trim().notEmpty().withMessage('Vendor ID is required').escape(),
-  body('fileName').trim().notEmpty().withMessage('File name is required').escape(),
-  body('contentType').trim().notEmpty().withMessage('Content Type is required'),
+  body('vendorId').trim().notEmpty().matches(/^[a-zA-Z0-9_-]+$/).withMessage('Invalid Vendor ID format'),
+  body('fileName').trim().notEmpty().isLength({ max: 100 }).escape(),
+  body('contentType').trim().notEmpty().isIn([
+    'application/pdf', 
+    'image/jpeg', 
+    'image/jpg', 
+    'image/png', 
+    'image/webp',
+    'application/msword', 
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/octet-stream'
+  ]).withMessage('Unsupported file type'),
   validate
 ], async (req, res) => {
   const { vendorId, fileName, contentType } = req.body;
@@ -125,9 +135,11 @@ router.post('/files/upload-url', [
       throw new Error("R2_BUCKET_NAME is not defined in environment variables");
     }
 
-    const sanitizedVendorId = vendorId.trim().replace(/\s+/g, '_');
-    const sanitizedFileName = fileName.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9.\-_]/g, '');
-    const filePath = `${sanitizedVendorId}/${Date.now()}_${sanitizedFileName}`;
+    // Strict sanitization
+    const sanitizedVendorId = vendorId.trim().replace(/[^a-zA-Z0-9_-]/g, '');
+    const extension = fileName.split('.').pop();
+    const cleanFileName = fileName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+    const filePath = `${sanitizedVendorId}/${Date.now()}_${cleanFileName}.${extension}`;
 
     console.log(`Generating upload URL for: ${filePath} in bucket: ${process.env.R2_BUCKET_NAME}`);
 
@@ -138,7 +150,7 @@ router.post('/files/upload-url', [
     });
 
     const uploadUrl = await getSignedUrl(r2, command, { expiresIn: 600 });
-    res.json({ uploadUrl, filePath });
+    res.json({ uploadUrl, filePath, bucket: process.env.R2_BUCKET_NAME });
   } catch (err) {
     console.error("R2 Upload URL Error Detail:", err);
     handleError(res, err, "Generating upload URL failed");

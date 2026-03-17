@@ -45,7 +45,7 @@ import { decode } from "base64-arraybuffer";
 
 const printHistoryData = [
   {
-    fileName: "file_name_1",
+    fileName: "file_name_1",  
     time: "09:46",
     date: "22-02-26",
     status: "completed",
@@ -207,7 +207,19 @@ export default function HomePage() {
     }
   };
 
-  const robohashUrl = userData ? `https://robohash.org/${userData.username || userData.id}.png` : null;
+  const getAvatarHash = (seed: string) => {
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) {
+      const char = seed.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash |= 0; // Convert to 32bit integer
+    }
+    return Math.abs(hash).toString(16);
+  };
+
+  const robohashUrl = userData 
+    ? `https://robohash.org/${getAvatarHash(userData.username || userData.id.toString())}.png?set=set4` 
+    : null;
 
   const handleDeleteAccount = async () => {
     Alert.alert(
@@ -249,21 +261,24 @@ export default function HomePage() {
   const handleUpload = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        // Standard printable formats
         type: [
           "application/pdf",
           "image/*",
           "application/msword",
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // docx
-          "application/vnd.ms-powerpoint", // ppt
-          "application/vnd.openxmlformats-officedocument.presentationml.presentation", // pptx
-          "application/vnd.ms-excel", // xls
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" // xlsx
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "application/vnd.ms-powerpoint",
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+          "application/vnd.ms-excel",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ],
         multiple: true,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
+        if (result.assets.length > 10) {
+           Alert.alert("Limit Reached", "You can only upload up to 10 files at a time.");
+           return;
+        }
         const filteredAssets = result.assets.filter(asset => {
           const mime = asset.mimeType?.toLowerCase() || "";
           const name = asset.name.toLowerCase();

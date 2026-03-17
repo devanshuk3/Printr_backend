@@ -47,7 +47,7 @@ app.use(express.static('public'));
 // 4. Rate Limiting for Auth and Sensitive Routes
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20, // Limit each IP to 20 requests per windowMs for auth
+  max: 10, // Limit each IP to 10 requests per windowMs for auth
   message: { message: "Too many login attempts, please try again after 15 minutes" },
   standardHeaders: true,
   legacyHeaders: false,
@@ -60,10 +60,17 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, 
+  max: 50, // 50 upload requests per hour
+  message: { message: "Upload limit reached. Please try again later." },
+});
+
 app.use('/api/', apiLimiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 app.use('/api/auth/google', authLimiter);
+app.use('/api/vendors/files/upload-url', uploadLimiter);
 
 // Request logger (Sanitizing logs in production)
 app.use((req, res, next) => {
