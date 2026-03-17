@@ -198,9 +198,7 @@ const PrintSettings = () => {
 
                     const uploadRes = await FileSystem.uploadAsync(uploadUrl, file.uri, {
                          httpMethod: 'PUT',
-                         headers: {
-                              'Content-Type': file.mimeType || 'application/octet-stream'
-                         }
+                         uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
                     });
 
                     if (uploadRes.status < 200 || uploadRes.status >= 300) {
