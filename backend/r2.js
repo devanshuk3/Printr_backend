@@ -5,7 +5,7 @@ console.log('Initializing R2 S3 Client...');
 const endpoint = process.env.R2_ENDPOINT ? process.env.R2_ENDPOINT.trim().replace(/\/$/, '') : '';
 
 const r2 = new S3Client({
-  region: 'us-east-1', // Fixed for SigV4 compliance
+  region: 'auto', // Official R2 recommendation for account-specific endpoints
   endpoint: endpoint,
   forcePathStyle: true,
   credentials: {

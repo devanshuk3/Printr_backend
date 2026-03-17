@@ -149,7 +149,7 @@ router.post('/files/upload-url', [
     const command = new PutObjectCommand({
       Bucket: bucketName,
       Key: filePath,
-      ContentType: 'application/octet-stream', // Hardcoded for signature stability
+      // No ContentType here: SigV4 signature will be header-agnostic
     });
 
     const uploadUrl = await getSignedUrl(r2, command, { expiresIn: 600 });

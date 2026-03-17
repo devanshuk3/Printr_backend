@@ -194,27 +194,22 @@ const PrintSettings = () => {
                          throw new Error(errorData.message || "Failed to get upload URL");
                     }
 
-                    const { uploadUrl, filePath } = await urlResponse.json();
-                    
-                    // Convert local file to Blob for fetch PUT
-                    const blobResponse = await fetch(file.uri);
-                    const blob = await blobResponse.blob();
+                     const { uploadUrl, filePath } = await urlResponse.json();
+                     
+                     // Use Native FileSystem upload (more robust on Android)
+                     // By sending NO headers, we match the header-agnostic SigV4 hash
+                     const uploadRes = await FileSystem.uploadAsync(uploadUrl, file.uri, {
+                          httpMethod: 'PUT',
+                          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+                     });
 
-                    const uploadRes = await fetch(uploadUrl, {
-                         method: 'PUT',
-                         body: blob,
-                         headers: {
-                              'Content-Type': 'application/octet-stream'
-                         }
-                    });
-
-                    if (!uploadRes.ok) {
-                         const errorBody = await uploadRes.text();
-                         console.log(`[DEBUG] R2 Error: ${errorBody}`);
-                         throw new Error(`Cloud storage upload failed: ${errorBody}`);
-                    }
-                    return filePath;
-               }));
+                     if (uploadRes.status < 200 || uploadRes.status >= 300) {
+                          const errorBody = uploadRes.body || `Status ${uploadRes.status}`;
+                          console.log(`[DEBUG] R2 Error: ${errorBody}`);
+                          throw new Error(`Cloud storage upload failed (${uploadRes.status}): ${errorBody}`);
+                     }
+                     return filePath;
+                }));
                console.log("All files uploaded to R2:", uploadResults);
                return uploadResults;
           } catch (error: any) {
