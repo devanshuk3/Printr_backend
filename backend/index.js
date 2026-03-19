@@ -118,89 +118,86 @@ app.get('/api/pay/:sessionId', (req, res) => {
   const { pa, pn, am, tn } = session;
   const upiParams = `pa=${pa}&pn=${encodeURIComponent(pn)}&am=${am}&tn=${encodeURIComponent(tn || '')}&cu=INR`;
   const upiLink = `upi://pay?${upiParams}`;
-  const androidIntent = `intent://pay?${upiParams}#Intent;scheme=upi;package=in.org.npci.upiapp;end`; // Generic NPICI package to trigger chooser or app
+  const androidIntent = `intent://pay?${upiParams}#Intent;scheme=upi;end`; 
   
   const html = `
     <!DOCTYPE html>
     <html lang="en">
     <head>
         <meta charset="UTF-8">
+        <meta http-equiv="refresh" content="0;url=${upiLink}" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Pay via UPI</title>
-        <script>
-            function startPayment() {
-                const isAndroid = /android/i.test(navigator.userAgent);
-                const upiUrl = isAndroid ? "${androidIntent}" : "${upiLink}";
-                
-                // Strategy 1: Immediate Direct Location Change
-                window.location.href = upiUrl;
-
-                // Strategy 2: Delay-based Retry
-                setTimeout(function() {
-                    window.location.replace(upiUrl);
-                }, 250);
-
-                // Strategy 3: Reveal Manual Button after handshake wait
-                setTimeout(function() {
-                    document.getElementById('loading').style.display = 'none';
-                    document.getElementById('action-card').style.display = 'block';
-                }, 3000);
-            }
-        </script>
+        <title>Fast UPI Checkout</title>
         <style>
             body { 
-                background: #f0f7ff; 
+                background: #f8fbff; 
                 display: flex; 
                 align-items: center; 
                 justify-content: center; 
                 height: 100vh; 
                 margin: 0; 
                 font-family: -apple-system, system-ui, sans-serif; 
-                color: #2e3563;
-                text-align: center;
+                color: #1a202c;
             }
-            #action-card {
+            .content { text-align: center; width: 90%; max-width: 320px; }
+            .loader {
+                border: 4px solid #e2e8f0;
+                border-top: 4px solid #1271dd;
+                border-radius: 50%;
+                width: 50px;
+                height: 50px;
+                animation: spin 1s linear infinite;
+                margin: 0 auto 20px;
+            }
+            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+            .status-text { font-size: 18px; font-weight: 600; margin-bottom: 24px; color: #2d3748; }
+            .btn {
                 display: none;
-                background: white;
-                padding: 40px;
-                border-radius: 30px;
-                box-shadow: 0 10px 40px rgba(46, 53, 99, 0.1);
-                width: 85%;
-                max-width: 320px;
-            }
-            .pay-btn {
-                display: inline-block;
-                padding: 18px 40px;
+                padding: 20px 40px;
                 background: #1271dd;
                 color: white !important;
                 text-decoration: none;
-                border-radius: 16px;
-                font-weight: bold;
+                border-radius: 18px;
+                font-weight: 700;
                 font-size: 18px;
-                box-shadow: 0 8px 20px rgba(18, 113, 221, 0.3);
+                margin-top: 10px;
+                box-shadow: 0 10px 25px rgba(18, 113, 221, 0.4);
+                animation: pulse 1.5s infinite;
             }
-            .loader {
-                border: 4px solid #f3f3f3;
-                border-top: 4px solid #1271dd;
-                border-radius: 50%;
-                width: 40px;
-                height: 40px;
-                animation: spin 1s linear infinite;
+            @keyframes pulse {
+                0% { transform: scale(1); }
+                50% { transform: scale(1.03); }
+                100% { transform: scale(1); }
             }
-            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         </style>
     </head>
-    <body onload="startPayment()">
-        <div id="loading">
-            <div class="loader" style="margin: 0 auto 20px;"></div>
-            <p>Authenticating with UPI app...</p>
+    <body>
+        <div class="content">
+            <div id="loading-state">
+                <div class="loader"></div>
+                <div class="status-text">Handshaking with UPI App...</div>
+                <p style="color: #718096; font-size: 14px;">Please wait, redirecting you securely.</p>
+            </div>
+            <a href="${upiLink}" id="pay-btn" class="btn">Click to Finish Payment</a>
         </div>
 
-        <div id="action-card">
-            <h2 style="margin-top: 0;">UPI App Not Opening?</h2>
-            <p style="color: #64748b; margin-bottom: 30px;">Tap the button below to finish your payment of ₹${am}</p>
-            <a href="${upiLink}" class="pay-btn">Open UPI App</a>
-        </div>
+        <script>
+            // Execution block
+            const upiUrl = /android/i.test(navigator.userAgent) ? "${androidIntent}" : "${upiLink}";
+            
+            // 1. Immediate call
+            window.location.href = upiUrl;
+
+            // 2. JS Fallback calls
+            setTimeout(function() { window.location.replace(upiUrl); }, 100);
+            setTimeout(function() { window.location.replace(upiUrl); }, 500);
+
+            // 3. UI Reveal for manual interaction
+            setTimeout(function() {
+                document.getElementById('loading-state').style.display = 'none';
+                document.getElementById('pay-btn').style.display = 'inline-block';
+            }, 2500);
+        </script>
     </body>
     </html>
   `;
