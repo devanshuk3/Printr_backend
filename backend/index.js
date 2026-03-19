@@ -116,7 +116,9 @@ app.get('/api/pay/:sessionId', (req, res) => {
   }
   
   const { pa, pn, am, tn } = session;
-  const upiLink = `upi://pay?pa=${pa}&pn=${pn}&am=${am}&tn=${tn || ''}&cu=INR`;
+  const upiParams = `pa=${pa}&pn=${encodeURIComponent(pn)}&am=${am}&tn=${encodeURIComponent(tn || '')}&cu=INR`;
+  const upiLink = `upi://pay?${upiParams}`;
+  const androidIntent = `intent://pay?${upiParams}#Intent;scheme=upi;package=in.org.npci.upiapp;end`; // Generic NPICI package to trigger chooser or app
   
   const html = `
     <!DOCTYPE html>
@@ -124,39 +126,58 @@ app.get('/api/pay/:sessionId', (req, res) => {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Processing Payment...</title>
+        <title>Pay via UPI</title>
         <script>
-            function triggerRedirect() {
-                // Method 1: Location refresh
-                window.location.href = "${upiLink}";
+            function startPayment() {
+                const isAndroid = /android/i.test(navigator.userAgent);
+                const upiUrl = isAndroid ? "${androidIntent}" : "${upiLink}";
                 
-                // Method 2: Click simulation (Robust fallback for Safari/Chrome focus)
-                setTimeout(() => {
-                    const link = document.createElement('a');
-                    link.href = "${upiLink}";
-                    link.style.display = 'none';
-                    document.body.appendChild(link);
-                    link.click();
-                }, 100);
+                // Strategy 1: Immediate Direct Location Change
+                window.location.href = upiUrl;
 
-                // Method 3: Final fallback message
-                setTimeout(() => {
-                    document.getElementById('status').innerText = "Redirecting...";
-                    document.getElementById('manual-btn').style.display = 'inline-block';
-                }, 1500);
+                // Strategy 2: Delay-based Retry
+                setTimeout(function() {
+                    window.location.replace(upiUrl);
+                }, 250);
+
+                // Strategy 3: Reveal Manual Button after handshake wait
+                setTimeout(function() {
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('action-card').style.display = 'block';
+                }, 3000);
             }
         </script>
         <style>
             body { 
-                background: #f8fbff; 
+                background: #f0f7ff; 
                 display: flex; 
-                flex-direction: column; 
                 align-items: center; 
                 justify-content: center; 
                 height: 100vh; 
                 margin: 0; 
                 font-family: -apple-system, system-ui, sans-serif; 
                 color: #2e3563;
+                text-align: center;
+            }
+            #action-card {
+                display: none;
+                background: white;
+                padding: 40px;
+                border-radius: 30px;
+                box-shadow: 0 10px 40px rgba(46, 53, 99, 0.1);
+                width: 85%;
+                max-width: 320px;
+            }
+            .pay-btn {
+                display: inline-block;
+                padding: 18px 40px;
+                background: #1271dd;
+                color: white !important;
+                text-decoration: none;
+                border-radius: 16px;
+                font-weight: bold;
+                font-size: 18px;
+                box-shadow: 0 8px 20px rgba(18, 113, 221, 0.3);
             }
             .loader {
                 border: 4px solid #f3f3f3;
@@ -165,26 +186,21 @@ app.get('/api/pay/:sessionId', (req, res) => {
                 width: 40px;
                 height: 40px;
                 animation: spin 1s linear infinite;
-                margin-bottom: 20px;
             }
             @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-            #manual-btn {
-                display: none;
-                padding: 16px 32px;
-                background: #1271dd;
-                color: white;
-                text-decoration: none;
-                border-radius: 12px;
-                font-weight: 600;
-                margin-top: 20px;
-                box-shadow: 0 4px 15px rgba(18, 113, 221, 0.3);
-            }
         </style>
     </head>
-    <body onload="triggerRedirect()">
-        <div class="loader"></div>
-        <p id="status" style="font-weight: 500;">Securely handshaking with UPI app...</p>
-        <a id="manual-btn" href="${upiLink}">Continue to Payment App</a>
+    <body onload="startPayment()">
+        <div id="loading">
+            <div class="loader" style="margin: 0 auto 20px;"></div>
+            <p>Authenticating with UPI app...</p>
+        </div>
+
+        <div id="action-card">
+            <h2 style="margin-top: 0;">UPI App Not Opening?</h2>
+            <p style="color: #64748b; margin-bottom: 30px;">Tap the button below to finish your payment of ₹${am}</p>
+            <a href="${upiLink}" class="pay-btn">Open UPI App</a>
+        </div>
     </body>
     </html>
   `;
