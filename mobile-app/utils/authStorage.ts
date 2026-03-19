@@ -8,6 +8,7 @@ export interface UserData {
   fullName: string;
   email: string;
   username: string;
+  profileSeedOffset?: number;
 }
 
 export const saveAuthData = async (token: string, user: UserData) => {

@@ -7,12 +7,14 @@ import {
   TouchableOpacity,
   StatusBar,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Store, Printer, IndianRupee, TrendingUp } from "lucide-react-native";
 import { API_URL } from "../../constants/apiConfig";
 import { getAuthData } from "../../utils/authStorage";
+import { getRobohashUrl } from "../../utils/avatar";
 
 // Vendor data is now fetched from the database
 
@@ -20,10 +22,22 @@ const AdminVendorsPage = () => {
   const router = useRouter();
   const [vendors, setVendors] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [userData, setUserData] = React.useState<any>(null);
 
   React.useEffect(() => {
     fetchVendors();
+    loadUser();
   }, []);
+
+  const loadUser = async () => {
+    const { user } = await getAuthData();
+    if (user) setUserData(user);
+  };
+
+  const robohashUrl = userData 
+    ? getRobohashUrl(userData.username || userData.id.toString(), userData.profileSeedOffset || 0)
+    : null;
+
 
   const fetchVendors = async () => {
     try {
@@ -61,9 +75,18 @@ const AdminVendorsPage = () => {
         >
           <ChevronLeft size={28} color="#2e3563" />
         </TouchableOpacity>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Vendor Dashboard</Text>
           <Text style={styles.headerSubtitle}>Connected Stores & Revenue</Text>
+        </View>
+        <View style={styles.profileIconCircle}>
+            {robohashUrl ? (
+                <Image source={{ uri: robohashUrl }} style={styles.profileImageSmall} />
+            ) : (
+                <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#f0f7ff', alignItems: 'center', justifyContent: 'center' }}>
+                     <TrendingUp size={20} color="#1271dd" />
+                </View>
+            )}
         </View>
       </View>
 
@@ -152,7 +175,30 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
+    gap: 12,
   },
+  profileIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#eef6ff",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#ffffff",
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  profileImageSmall: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "contain",
+  },
+
   backButton: {
     width: 44,
     height: 44,

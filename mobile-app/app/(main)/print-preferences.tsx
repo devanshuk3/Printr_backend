@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, TextInput, ScrollView, StyleSheet, Alert, Platform, Linking, Modal, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Plus, Minus, ChevronLeft, FileText, Hash, Copy, Check, X } from 'lucide-react-native';
+import { Plus, Minus, ChevronLeft, FileText, Hash, Copy, Check, X, Smartphone, AlertCircle } from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { API_URL } from "../../constants/apiConfig";
 import * as IntentLauncher from 'expo-intent-launcher';
@@ -92,6 +92,9 @@ const PrintSettings = () => {
      const [isUploading, setIsUploading] = useState(false);
      const [showSuccessModal, setShowSuccessModal] = useState(false);
      const [successScale] = useState(new Animated.Value(0));
+     const [isFetchingVendor, setIsFetchingVendor] = useState(false);
+     const [vendorUPI, setVendorUPI] = useState<{ upiId: string, name: string } | null>(null);
+     const [upiError, setUpiError] = useState<string | null>(null);
 
      useEffect(() => {
           const calculateTotalPages = async () => {
@@ -252,6 +255,89 @@ const PrintSettings = () => {
                console.error("Stats update error:", statsErr);
           }
      };
+     const fetchVendorDetails = async () => {
+          if (!vendorId) return;
+          setIsFetchingVendor(true);
+          setUpiError(null);
+          try {
+               const { token } = await getAuthData();
+               const response = await fetch(`${API_URL}/vendors/verify/${vendorId}`, {
+                    headers: { 'x-auth-token': token || '' }
+               });
+               if (!response.ok) throw new Error("Failed to fetch vendor details");
+               const data = await response.json();
+               if (!data.upi_id) {
+                    setUpiError("This vendor has no UPI ID set up.");
+               } else {
+                    setVendorUPI({ upiId: data.upi_id, name: data.name || vendorName || "Merchant" });
+               }
+          } catch (err) {
+               console.error("Error fetching vendor:", err);
+               // Fallback to params if fetch fails
+               if (upiId) {
+                    setVendorUPI({ upiId, name: vendorName || "Merchant" });
+               } else {
+                    setUpiError("Could not retrieve vendor UPI details.");
+               }
+          } finally {
+               setIsFetchingVendor(false);
+          }
+     };
+
+     const handleUPIPayment = async () => {
+          const upi = vendorUPI?.upiId || upiId;
+          const name = vendorUPI?.name || vendorName || "Merchant";
+          
+          if (!upi) {
+               Alert.alert("Error", "UPI ID not found for this vendor.");
+               return;
+          }
+
+          const amount = pendingAmount;
+          const note = encodeURIComponent(`[${vendorId}] Print Job`);
+          const params = `pa=${upi}&pn=${encodeURIComponent(name)}&am=${amount}&tn=${note}&cu=INR`;
+
+          try {
+               if (Platform.OS === 'android') {
+                    const intentUrl = `intent://pay?${params}#Intent;scheme=upi;end`;
+                    try {
+                         await Linking.openURL(intentUrl);
+                    } catch (err) {
+                         // Fallback to plain upi:// if intent fails
+                         await Linking.openURL(`upi://pay?${params}`);
+                    }
+               } else if (Platform.OS === 'ios') {
+                    const iosSchemes = [
+                         'tez://upi/pay',
+                         'phonepe://pay',
+                         'paytmmp://pay',
+                         'bhim://pay',
+                         'upi://pay'
+                    ];
+
+                    let opened = false;
+                    for (const scheme of iosSchemes) {
+                         const url = `${scheme}?${params}`;
+                         if (await Linking.canOpenURL(url)) {
+                              await Linking.openURL(url);
+                              opened = true;
+                              break;
+                         }
+                    }
+
+                    if (!opened) {
+                         Alert.alert("No UPI App", "No UPI apps (GPay, PhonePe, Paytm, BHIM) found on this device.");
+                    }
+               } else if (Platform.OS === 'web') {
+                    (window as any).location.href = `upi://pay?${params}`;
+               } else {
+                    await Linking.openURL(`upi://pay?${params}`);
+               }
+          } catch (error) {
+               console.error("UPI deep link error:", error);
+               Alert.alert("Error", "Could not open UPI payment. Please try copying the UPI ID instead.");
+          }
+     };
 
      const handleCheckout = async () => {
           if (uploadedFiles.length === 0) {
@@ -275,6 +361,7 @@ const PrintSettings = () => {
           
           setPendingAmount(finalAmount);
           setShowPaymentModal(true);
+          fetchVendorDetails();
      };
 
      const copyToClipboard = async () => {
@@ -482,7 +569,33 @@ const PrintSettings = () => {
                                         />
                                    </View>
 
-                                   <Text style={styles.hintText}>Scan this QR using any UPI app (GPay, PhonePe, Paytm)</Text>
+                                    <Text style={styles.hintText}>Scan this QR using any UPI app (GPay, PhonePe, Paytm)</Text>
+
+                                    <View style={styles.upiDirectContainer}>
+                                         {isFetchingVendor ? (
+                                              <View style={styles.upiLoadingBox}>
+                                                   <ActivityIndicator color="#1271dd" size="small" />
+                                                   <Text style={styles.upiLoadingText}>Fetching payment details...</Text>
+                                              </View>
+                                         ) : upiError ? (
+                                              <View style={styles.upiErrorBox}>
+                                                   <AlertCircle size={20} color="#ef4444" />
+                                                   <Text style={styles.upiErrorText}>{upiError}</Text>
+                                              </View>
+                                         ) : (
+                                              <TouchableOpacity 
+                                                   style={[
+                                                       styles.upiDirectBtn, 
+                                                       (parseFloat(pendingAmount) <= 0) && { opacity: 0.6 }
+                                                   ]}
+                                                   onPress={handleUPIPayment}
+                                                   disabled={parseFloat(pendingAmount) <= 0}
+                                              >
+                                                   <Smartphone size={20} color="#ffffff" />
+                                                   <Text style={styles.upiDirectBtnText}>Pay ₹{pendingAmount} via UPI</Text>
+                                              </TouchableOpacity>
+                                         )}
+                                    </View>
 
                                    <View style={styles.manualEntryBox}>
                                         <Text style={styles.manualLabel}>Or pay to UPI ID:</Text>
@@ -868,6 +981,61 @@ const styles = StyleSheet.create({
           fontSize: 16,
           fontWeight: '700',
           letterSpacing: 0.5,
+     },
+     upiDirectContainer: {
+          width: '100%',
+          marginBottom: 24,
+     },
+     upiDirectBtn: {
+          flexDirection: 'row',
+          backgroundColor: '#1271dd',
+          paddingVertical: 16,
+          borderRadius: 16,
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 12,
+          shadowColor: '#1271dd',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.3,
+          shadowRadius: 8,
+          elevation: 4,
+     },
+     upiDirectBtnText: {
+          color: '#ffffff',
+          fontSize: 16,
+          fontWeight: '700',
+     },
+     upiLoadingBox: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 10,
+          padding: 16,
+          backgroundColor: '#f8fbff',
+          borderRadius: 16,
+          borderWidth: 1,
+          borderColor: '#e0f2fe',
+     },
+     upiLoadingText: {
+          fontSize: 14,
+          color: '#1271dd',
+          fontWeight: '600',
+     },
+     upiErrorBox: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 10,
+          padding: 16,
+          backgroundColor: '#fef2f2',
+          borderRadius: 16,
+          borderWidth: 1,
+          borderColor: '#fee2e2',
+     },
+     upiErrorText: {
+          fontSize: 14,
+          color: '#ef4444',
+          fontWeight: '600',
      },
 });
 

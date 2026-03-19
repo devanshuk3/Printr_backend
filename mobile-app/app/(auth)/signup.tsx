@@ -20,6 +20,7 @@ import { API_URL } from "../../constants/apiConfig";
 import { saveAuthData } from "../../utils/authStorage";
 
 import { setSharedFullName } from "../../utils/sharedState";
+import { getRobohashUrl } from "../../utils/avatar";
 
 export default function SignUp() {
      const router = useRouter();
@@ -158,8 +159,14 @@ export default function SignUp() {
                >
                     <View style={styles.card}>
                          {/* Header */}
-                         <View style={styles.header}>
-                              <Text style={styles.title}>Create an account</Text>
+                          <View style={styles.header}>
+                               <View style={styles.avatarPreviewWrapper}>
+                                    <Image 
+                                         source={{ uri: getRobohashUrl(username || "user") }} 
+                                         style={styles.avatarPreview}
+                                    />
+                               </View>
+                               <Text style={styles.title}>Create an account</Text>
                               <Text style={styles.subtitle}>
                                    {"Already have an account? "}
                                    <Text style={styles.loginLink} onPress={() => router.replace("/")}>Login</Text>
@@ -340,7 +347,30 @@ const styles = StyleSheet.create({
           elevation: 2,
      },
      googleLogo: {
-          width: 120,
-          height: 24,
-     },
+    width: 120,
+    height: 24,
+  },
+  avatarPreviewWrapper: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "#eef6ff",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+    borderWidth: 3,
+    borderColor: "#ffffff",
+    overflow: "hidden",
+    alignSelf: "flex-start",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  avatarPreview: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "contain",
+  },
 });

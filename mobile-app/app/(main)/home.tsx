@@ -23,8 +23,10 @@ import * as Sharing from "expo-sharing";
 import { FilePreviewModal } from "../../components/modals/FilePreviewModal";
 import { Linking } from "react-native";
 import { API_URL } from "../../constants/apiConfig";
+import { getAvatarHash, getRobohashUrl } from "../../utils/avatar";
 import {
   CloudUpload,
+  RefreshCcw,
   CheckCircle2,
   Clock,
   XCircle,
@@ -104,6 +106,11 @@ export default function HomePage() {
         // Show username modal ONLY if isNewUser param is present
         if (params.isNewUser === 'true') {
           setIsUsernameModalVisible(true);
+        }
+        
+        // Initialize offset from user data
+        if (user.profileSeedOffset !== undefined) {
+          setProfileSeedOffset(user.profileSeedOffset);
         }
       }
     };
@@ -208,22 +215,21 @@ export default function HomePage() {
     }
   };
 
-  const getAvatarHash = (seed: string) => {
-    let hash = 0;
-    for (let i = 0; i < seed.length; i++) {
-      const char = seed.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash |= 0; // Convert to 32bit integer
-    }
-    return Math.abs(hash).toString(16);
-  };
-
   const robohashUrl = userData 
-    ? `https://robohash.org/${getAvatarHash((userData.username || userData.id.toString()) + profileSeedOffset)}.png?set=set4` 
+    ? getRobohashUrl(userData.username || userData.id.toString(), profileSeedOffset)
     : null;
 
-  const handleChangeProfileIcon = () => {
-    setProfileSeedOffset(prev => prev + 1);
+  const handleChangeProfileIcon = async () => {
+    const newOffset = profileSeedOffset + 1;
+    setProfileSeedOffset(newOffset);
+    
+    // Persist Choice
+    if (userData) {
+      const { token } = await getAuthData();
+      const updatedUser = { ...userData, profileSeedOffset: newOffset };
+      setUserData(updatedUser);
+      await saveAuthData(token || '', updatedUser);
+    }
   };
 
   const handleDeleteAccount = async () => {
@@ -438,7 +444,12 @@ export default function HomePage() {
           <View style={styles.modalOverlay}>
             <View style={styles.usernameModal}>
               <View style={styles.usernameModalHeader}>
-                <UserCircle size={60} color="#1271dd" />
+                <View style={styles.usernameRobohashWrapper}>
+                  <Image 
+                    source={{ uri: getRobohashUrl(newUsername || "user", profileSeedOffset) }} 
+                    style={styles.usernameRobohash} 
+                  />
+                </View>
                 <Text style={styles.usernameModalTitle}>Choose your username</Text>
                 <Text style={styles.usernameModalSubtitle}>
                   Welcome to printr! You've logged in with Google. Before you start, please pick a unique username.
@@ -481,7 +492,7 @@ export default function HomePage() {
           visible={isProfileVisible}
           onRequestClose={() => setIsProfileVisible(false)}
         >
-          <View style={styles.modalOverlay}>
+          <View style={styles.modalOverlay}>-+
             <View style={styles.profileModal}>
               <View style={styles.profileModalHeader}>
                 <Text style={styles.profileModalTitle}>My Profile</Text>
@@ -491,18 +502,20 @@ export default function HomePage() {
               </View>
 
               <View style={styles.profileContent}>
-                <View style={[styles.profileImageLargeContainer, { position: 'relative' }]}>
-                  {robohashUrl ? (
-                    <Image source={{ uri: robohashUrl }} style={styles.profileImageLarge} />
-                  ) : (
-                    <UserCircle size={100} color="#1271dd" />
-                  )}
+                <View style={styles.profileImageLargeOuter}>
+                  <View style={styles.profileImageLargeInner}>
+                    {robohashUrl ? (
+                      <Image source={{ uri: robohashUrl }} style={styles.profileImageLarge} />
+                    ) : (
+                      <UserCircle size={100} color="#1271dd" />
+                    )}
+                  </View>
                   <TouchableOpacity 
                     style={styles.changeProfileIconBtn}
                     onPress={handleChangeProfileIcon}
                     activeOpacity={0.8}
                   >
-                    <CloudUpload size={18} color="#ffffff" strokeWidth={2.5} />
+                    <RefreshCcw size={18} color="#1271dd" strokeWidth={2.5} />
                   </TouchableOpacity>
                 </View>
 
@@ -1207,21 +1220,31 @@ const styles = StyleSheet.create({
     padding: 24,
     alignItems: "center",
   },
-  profileImageLargeContainer: {
+  profileImageLargeOuter: {
+    position: "relative",
     width: 120,
     height: 120,
+    marginBottom: 24,
+  },
+  profileImageLargeInner: {
+    width: "100%",
+    height: "100%",
     borderRadius: 60,
-    backgroundColor: "#f0f7ff",
+    backgroundColor: "#eef6ff",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 24,
     borderWidth: 4,
-    borderColor: "#e3f0ff",
+    borderColor: "#ffffff",
     overflow: "hidden",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 8,
   },
   profileImageLarge: {
-    width: 120,
-    height: 120,
+    width: "100%",
+    height: "100%",
     resizeMode: "contain",
   },
   profileInfoList: {
@@ -1277,36 +1300,66 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#f0f7ff",
+    backgroundColor: "#eef6ff",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#e3f0ff",
+    borderWidth: 2,
+    borderColor: "#ffffff",
     overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   profileImageSmall: {
-    width: 32,
-    height: 32,
+    width: "100%",
+    height: "100%",
     resizeMode: "contain",
+  },
+  usernameRobohashWrapper: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "#ffffff",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 4,
+    borderColor: "#ffffff",
+    overflow: "hidden",
+    marginBottom: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  usernameRobohash: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
   },
   changeProfileIconBtn: {
     position: "absolute",
-    bottom: 0,
-    right: 0,
-    backgroundColor: "#1271dd",
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    bottom: -4,
+    right: -4,
+    backgroundColor: "#ffffff",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 3,
+    borderWidth: 5,
     borderColor: "#ffffff",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
+    overflow: "hidden",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 10,
+    zIndex: 10,
   },
+
   profileDeleteBtn: {
     width: "100%",
     height: 48,
