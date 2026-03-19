@@ -526,7 +526,7 @@ export default function HomePage() {
           visible={isProfileVisible}
           onRequestClose={() => setIsProfileVisible(false)}
         >
-          <View style={styles.modalOverlay}>-+
+          <View style={styles.modalOverlay}>
             <View style={styles.profileModal}>
               <View style={styles.profileModalHeader}>
                 <Text style={styles.profileModalTitle}>My Profile</Text>
