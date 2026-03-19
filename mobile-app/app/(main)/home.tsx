@@ -24,6 +24,7 @@ import { FilePreviewModal } from "../../components/modals/FilePreviewModal";
 import { Linking } from "react-native";
 import { API_URL } from "../../constants/apiConfig";
 import { getAvatarHash, getRobohashUrl } from "../../utils/avatar";
+import * as SecureStore from 'expo-secure-store';
 import {
   CloudUpload,
   RefreshCcw,
@@ -117,6 +118,21 @@ export default function HomePage() {
     fetchUser();
   }, [params.isNewUser]);
 
+  // Load saved vendor ID from SecureStore on mount
+  useEffect(() => {
+    const loadVendorId = async () => {
+      try {
+        const savedVendorId = await SecureStore.getItemAsync('saved_vendor_id');
+        if (savedVendorId) {
+          setVendorId(savedVendorId);
+        }
+      } catch (error) {
+        console.error('Error loading saved vendor ID:', error);
+      }
+    };
+    loadVendorId();
+  }, []);
+
   const calculatePageCount = async (files: any[]) => {
     let total = 0;
     for (const file of files) {
@@ -185,9 +201,10 @@ export default function HomePage() {
       return;
     }
 
+    const normalizedVendorId = vendorId.trim().toLowerCase();
     setIsVerifying(true);
     try {
-      const response = await fetch(`${API_URL}/vendors/verify/${vendorId}`);
+      const response = await fetch(`${API_URL}/vendors/verify/${normalizedVendorId}`);
       const contentType = response.headers.get("content-type");
       
       if (!contentType || !contentType.includes("application/json")) {
@@ -200,6 +217,12 @@ export default function HomePage() {
 
       if (response.ok) {
         setVerifiedVendor(data);
+        // Save vendor ID to SecureStore for persistence
+        try {
+          await SecureStore.setItemAsync('saved_vendor_id', vendorId);
+        } catch (e) {
+          console.warn('Could not save vendor ID:', e);
+        }
         // Default total pages to Number of files if not already set
         if (totalPages === 0) setTotalPages(uploadedFiles.length || 1);
         Alert.alert("Success", `Vendor: ${data.name} verified!`);
@@ -631,7 +654,17 @@ export default function HomePage() {
               placeholder="Vendor id"
               placeholderTextColor="#979797"
               value={vendorId}
-              onChangeText={setVendorId}
+              onChangeText={(text) => {
+                const normalizedText = text.toLowerCase();
+                setVendorId(normalizedText);
+
+                // Persist to SecureStore so it survives navigations and restarts
+                if (normalizedText.trim()) {
+                  SecureStore.setItemAsync('saved_vendor_id', normalizedText.trim()).catch(() => {});
+                } else {
+                  SecureStore.deleteItemAsync('saved_vendor_id').catch(() => {});
+                }
+              }}
             />
           </View>
           <TouchableOpacity 

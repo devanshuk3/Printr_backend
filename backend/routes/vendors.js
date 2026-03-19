@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const r2 = require('../r2');
-const { GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { GetObjectCommand, PutObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { param, body } = require('express-validator');
 const { validate } = require('../middleware/validator');
@@ -63,7 +63,7 @@ router.post('/increment-stats', [
 
   try {
     const vendorRes = await db.supabaseQuery(
-      'SELECT bw_price FROM vendors WHERE vendor_id = $1',
+      'SELECT bw_price FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
       [vendorId]
     );
 
@@ -78,7 +78,7 @@ router.post('/increment-stats', [
       `UPDATE vendors 
        SET pages_printed = COALESCE(pages_printed, 0) + $1, 
            platform_fee = COALESCE(platform_fee, 0) + $2 
-       WHERE vendor_id = $3`,
+       WHERE LOWER(vendor_id) = LOWER($3)`,
       [pages, feeIncrement.toFixed(2), vendorId]
     );
 
@@ -98,7 +98,8 @@ router.get('/files/:vendorId/:fileName', [
   const { vendorId, fileName } = req.params;
 
   try {
-    const filePath = `${vendorId}/${fileName}`;
+    const sanitizedVendorId = vendorId.trim().toLowerCase();
+    const filePath = `${sanitizedVendorId}/${fileName}`;
     const command = new GetObjectCommand({
       Bucket: process.env.R2_BUCKET_NAME,
       Key: filePath,
@@ -108,6 +109,64 @@ router.get('/files/:vendorId/:fileName', [
     res.json({ signedUrl });
   } catch (err) {
     handleError(res, err, "Generating view URL failed");
+  }
+});
+
+// Clear all existing files in a vendor's R2 folder (PROTECTED)
+// This ensures each vendor has only ONE folder/batch of files at a time
+router.post('/files/clear-vendor', [
+  auth,
+  body('vendorId').trim().notEmpty().matches(/^[a-zA-Z0-9_-]+$/).withMessage('Invalid Vendor ID format'),
+  validate
+], async (req, res) => {
+  const { vendorId } = req.body;
+
+  try {
+    const bucketName = (process.env.R2_BUCKET_NAME || '').trim();
+    if (!bucketName) throw new Error("R2_BUCKET_NAME is not configured");
+
+    const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
+    const prefix = `${sanitizedVendorId}/`;
+
+    // List all objects under this vendor's prefix
+    let continuationToken = undefined;
+    const allKeys = [];
+
+    do {
+      const listCommand = new ListObjectsV2Command({
+        Bucket: bucketName,
+        Prefix: prefix,
+        ContinuationToken: continuationToken,
+        MaxKeys: 1000,
+      });
+
+      const listed = await r2.send(listCommand);
+
+      if (listed.Contents && listed.Contents.length > 0) {
+        allKeys.push(...listed.Contents.map(obj => ({ Key: obj.Key })));
+      }
+
+      continuationToken = listed.IsTruncated ? listed.NextContinuationToken : undefined;
+    } while (continuationToken);
+
+    if (allKeys.length === 0) {
+      return res.json({ message: "No existing files to clear", deleted: 0 });
+    }
+
+    // Delete in batches of 1000 (R2 limit)
+    for (let i = 0; i < allKeys.length; i += 1000) {
+      const batch = allKeys.slice(i, i + 1000);
+      await r2.send(new DeleteObjectsCommand({
+        Bucket: bucketName,
+        Delete: { Objects: batch },
+      }));
+    }
+
+    console.log(`[R2] Cleared ${allKeys.length} old files for vendor: ${sanitizedVendorId}`);
+    res.json({ message: "Vendor folder cleared", deleted: allKeys.length });
+  } catch (err) {
+    console.error("Clear vendor files error:", err);
+    handleError(res, err, "Clearing vendor files failed");
   }
 });
 
@@ -135,8 +194,8 @@ router.post('/files/upload-url', [
       throw new Error("R2_BUCKET_NAME is not defined in environment variables");
     }
 
-    // Strict sanitization
-    const sanitizedVendorId = vendorId.trim().replace(/[^a-zA-Z0-9_-]/g, '');
+    // Strict sanitization - folder names are always lowercase for case-insensitivity
+    const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
     const extension = fileName.split('.').pop();
     const cleanFileName = fileName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
     const filePath = `${sanitizedVendorId}/${Date.now()}_${cleanFileName}.${extension}`;
