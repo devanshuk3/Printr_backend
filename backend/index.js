@@ -116,9 +116,15 @@ app.get('/api/pay/:sessionId', (req, res) => {
   }
   
   const { pa, pn, am, tn } = session;
+  const pkg = req.query.pkg || ''; // Optional app package for targeted intent
+  
   const upiParams = `pa=${pa}&pn=${encodeURIComponent(pn)}&am=${am}&tn=${encodeURIComponent(tn || '')}&cu=INR`;
   const upiLink = `upi://pay?${upiParams}`;
-  const androidIntent = `intent://pay?${upiParams}#Intent;scheme=upi;end`; 
+  
+  // Targeted Intent if pkg provided, else generic
+  const androidIntent = pkg 
+    ? `intent://pay?${upiParams}#Intent;scheme=upi;package=${pkg};S.browser_fallback_url=https://play.google.com/store/apps/details?id=${pkg};end`
+    : `intent://pay?${upiParams}#Intent;scheme=upi;end`; 
   
   const html = `
     <!DOCTYPE html>
@@ -131,7 +137,7 @@ app.get('/api/pay/:sessionId', (req, res) => {
         <style>
             body { 
                 background: #f8fbff; 
-                display: flex; 
+                display: flex; +
                 align-items: center; 
                 justify-content: center; 
                 height: 100vh; 

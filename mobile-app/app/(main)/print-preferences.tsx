@@ -59,6 +59,35 @@ const getUpiParam = (url: string, param: string) => {
      return match ? decodeURIComponent(match[1]) : null;
 };
 
+const UPI_APPS = [
+  { 
+    name: 'PhonePe', 
+    package: 'com.phonepe.app', 
+    scheme: 'phonepe://upi/pay',
+    color: '#6739b7'
+  },
+  { 
+    name: 'Google Pay', 
+    package: 'com.google.android.apps.nbu.paisa.user', 
+    scheme: 'tez://upi/pay',
+    color: '#4285f4'
+  },
+  { 
+    name: 'Paytm', 
+    package: 'net.one97.paytm', 
+    scheme: 'paytmmp://pay',
+    color: '#00baf2'
+  },
+  { 
+    name: 'BHIM', 
+    package: 'in.org.npci.upiapp', 
+    scheme: 'bhim://upi/pay',
+    color: '#eb6824'
+  },
+];
+
+const DEBUG_MODE = false;
+
 const PrintSettings = () => {
      const router = useRouter();
      const { files, vendorId, vendorPhone, bwPrice, colorPrice, upiId, vendorName } = useLocalSearchParams<{ 
@@ -95,6 +124,29 @@ const PrintSettings = () => {
      const [isFetchingVendor, setIsFetchingVendor] = useState(false);
      const [vendorUPI, setVendorUPI] = useState<{ upiId: string, name: string } | null>(null);
      const [upiError, setUpiError] = useState<string | null>(null);
+     const [installedApps, setInstalledApps] = useState<any[]>([]);
+
+     useEffect(() => {
+          checkInstalledApps();
+     }, []);
+
+     const checkInstalledApps = async () => {
+          const available = [];
+          for (const app of UPI_APPS) {
+               try {
+                    // Check by package on Android, by scheme on iOS
+                    const url = Platform.OS === 'android' 
+                         ? `intent://pay#Intent;scheme=upi;package=${app.package};end`
+                         : app.scheme;
+                    
+                    const canOpen = await Linking.canOpenURL(url);
+                    if (canOpen) available.push(app);
+               } catch (err) {
+                    console.log(`Error checking ${app.name}:`, err);
+               }
+          }
+          setInstalledApps(available);
+     };
 
      useEffect(() => {
           const calculateTotalPages = async () => {
@@ -284,7 +336,7 @@ const PrintSettings = () => {
           }
      };
 
-     const handleUPIPayment = async () => {
+     const handleUPIPayment = async (app?: any) => {
           const upi = vendorUPI?.upiId || upiId;
           const name = vendorUPI?.name || vendorName || "Merchant";
           
@@ -295,7 +347,8 @@ const PrintSettings = () => {
 
           const amount = parseFloat(pendingAmount).toFixed(2);
           const note = `[${vendorId}] Print Job`;
-          
+          const params = `pa=${upi}&pn=${encodeURIComponent(name)}&am=${amount}&tn=${encodeURIComponent(note)}&cu=INR`;
+
           try {
                // 1. Initialize session to hide confidential info from URL bar
                const initResponse = await fetch(`${API_URL}/pay/init`, {
@@ -312,12 +365,13 @@ const PrintSettings = () => {
                if (!initResponse.ok) throw new Error("Payment initialization failed");
                const { sessionId } = await initResponse.json();
 
-               // 2. Open browser with Opaque Session ID
-               const redirectUrl = `${API_URL}/pay/${sessionId}`;
+               // 2. Open browser with Opaque Session ID + Targeted Package
+               // This combination bypasses the ₹2000 deep-link cap while selecting the right app
+               const redirectUrl = `${API_URL}/pay/${sessionId}${app ? `?pkg=${app.package}` : ''}`;
                await Linking.openURL(redirectUrl);
           } catch (error) {
-               console.error("UPI redirect error:", error);
-               Alert.alert("Error", "Could not initiate payment safely. Please use the UPI ID manually.");
+               console.error("UPI link error:", error);
+               Alert.alert("Failure", `Could not initiate payment via ${app?.name || 'UPI app'}`);
           }
      };
 
@@ -554,11 +608,11 @@ const PrintSettings = () => {
                                     <Text style={styles.hintText}>Scan this QR using any UPI app (GPay, PhonePe, Paytm)</Text>
 
                                     <View style={styles.upiDirectContainer}>
-                                         <Text style={styles.upiGridTitle}>Pay via UPI App</Text>
+                                         <Text style={styles.upiGridTitle}>Pay via Direct App</Text>
                                          {isFetchingVendor ? (
                                               <View style={styles.upiLoadingBox}>
                                                    <ActivityIndicator color="#1271dd" size="small" />
-                                                   <Text style={styles.upiLoadingText}>Fetching payment details...</Text>
+                                                   <Text style={styles.upiLoadingText}>Checking apps...</Text>
                                               </View>
                                          ) : upiError ? (
                                               <View style={styles.upiErrorBox}>
@@ -566,17 +620,44 @@ const PrintSettings = () => {
                                                    <Text style={styles.upiErrorText}>{upiError}</Text>
                                               </View>
                                          ) : (
-                                              <TouchableOpacity 
-                                                   style={[
-                                                       styles.upiDirectBtn, 
-                                                       (parseFloat(pendingAmount) <= 0) && { opacity: 0.6 }
-                                                   ]}
-                                                   onPress={handleUPIPayment}
-                                                   disabled={parseFloat(pendingAmount) <= 0}
-                                              >
-                                                   <Smartphone size={20} color="#ffffff" />
-                                                   <Text style={styles.upiDirectBtnText}>Pay ₹{pendingAmount} via UPI</Text>
-                                              </TouchableOpacity>
+                                              <View style={styles.appLinksList}>
+                                                   {installedApps.length > 0 ? (
+                                                       installedApps.map((app) => (
+                                                            <TouchableOpacity 
+                                                                 key={app.package}
+                                                                 style={styles.appRow}
+                                                                 onPress={() => handleUPIPayment(app)}
+                                                            >
+                                                                 <View style={[styles.appIconContainer, { backgroundColor: app.color + '15' }]}>
+                                                                      <Smartphone size={24} color={app.color} />
+                                                                 </View>
+                                                                 <View style={styles.appInfo}>
+                                                                      <Text style={styles.appName}>{app.name}</Text>
+                                                                      {DEBUG_MODE && (
+                                                                           <Text style={styles.debugLink} numberOfLines={1}>
+                                                                                {Platform.OS === 'android' ? `intent://${app.package}` : app.scheme}
+                                                                           </Text>
+                                                                      )}
+                                                                 </View>
+                                                                 <ChevronLeft size={20} color="#cbd5e1" style={{ transform: [{ rotate: '180deg' }] }} />
+                                                            </TouchableOpacity>
+                                                       ))
+                                                   ) : (
+                                                       <TouchableOpacity 
+                                                            style={styles.appRow}
+                                                            onPress={() => handleUPIPayment()}
+                                                       >
+                                                            <View style={styles.appIconContainer}>
+                                                                 <CreditCard size={24} color="#1271dd" />
+                                                            </View>
+                                                            <View style={styles.appInfo}>
+                                                                 <Text style={styles.appName}>Other UPI App</Text>
+                                                                 <Text style={styles.appSubtitle}>Opens system payment chooser</Text>
+                                                            </View>
+                                                            <ChevronLeft size={20} color="#cbd5e1" style={{ transform: [{ rotate: '180deg' }] }} />
+                                                       </TouchableOpacity>
+                                                   )}
+                                              </View>
                                          )}
                                     </View>
 
@@ -969,25 +1050,6 @@ const styles = StyleSheet.create({
           width: '100%',
           marginBottom: 24,
      },
-     upiDirectBtn: {
-          flexDirection: 'row',
-          backgroundColor: '#1271dd',
-          paddingVertical: 18,
-          borderRadius: 16,
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 12,
-          shadowColor: '#1271dd',
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.3,
-          shadowRadius: 8,
-          elevation: 4,
-     },
-     upiDirectBtnText: {
-          color: '#ffffff',
-          fontSize: 16,
-          fontWeight: '700',
-     },
      upiGridTitle: {
           fontSize: 13,
           fontWeight: '700',
@@ -995,7 +1057,50 @@ const styles = StyleSheet.create({
           textTransform: 'uppercase',
           letterSpacing: 1,
           marginBottom: 16,
-          textAlign: 'center',
+          textAlign: 'left',
+     },
+     appLinksList: {
+          gap: 12,
+     },
+     appRow: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: '#ffffff',
+          padding: 14,
+          borderRadius: 20,
+          borderWidth: 1.5,
+          borderColor: '#f1f5f9',
+          gap: 16,
+     },
+     appIconContainer: {
+          width: 52,
+          height: 52,
+          borderRadius: 14,
+          backgroundColor: '#f8fafc',
+          alignItems: 'center',
+          justifyContent: 'center',
+     },
+     appInfo: {
+          flex: 1,
+     },
+     appName: {
+          fontSize: 16,
+          fontWeight: '700',
+          color: '#1e293b',
+     },
+     appSubtitle: {
+          fontSize: 12,
+          color: '#94a3b8',
+          marginTop: 2,
+     },
+     debugLink: {
+          fontSize: 10,
+          fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+          color: '#94a3b8',
+          marginTop: 4,
+          backgroundColor: '#f8fafc',
+          padding: 2,
+          borderRadius: 4,
      },
      upiLoadingBox: {
           flexDirection: 'row',
