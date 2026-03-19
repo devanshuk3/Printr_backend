@@ -8,6 +8,7 @@ const { param, body } = require('express-validator');
 const { validate } = require('../middleware/validator');
 const auth = require('../middleware/auth');
 const checkRole = require('../middleware/roleAuth');
+const crypto = require('crypto');
 
 /**
  * @helper Sanitize error message for production
@@ -196,20 +197,32 @@ router.post('/files/upload-url', [
 
     // Strict sanitization - folder names are always lowercase for case-insensitivity
     const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
-    const extension = fileName.split('.').pop();
+    const extension = fileName.split('.').pop()?.toLowerCase() || 'unknown';
     const cleanFileName = fileName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-    const filePath = `${sanitizedVendorId}/${Date.now()}_${cleanFileName}.${extension}`;
+    
+    // REQUIREMENT: Combination of Date.now() and randomUUID() for absolute uniqueness
+    const uniqueId = crypto.randomUUID();
+    const filePath = `${sanitizedVendorId}/${Date.now()}_${uniqueId}.${extension}`;
 
     const bucketName = process.env.R2_BUCKET_NAME ? process.env.R2_BUCKET_NAME.trim() : '';
     if (!bucketName) {
       throw new Error("R2_BUCKET_NAME is missing on server");
     }
 
+    // Insert record into database before uploading
+    // Default retention: 2 hours
+    const deleteAfter = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    
+    await db.supabaseQuery(
+      `INSERT INTO uploaded_files (object_key, vendor_id, file_name, delete_after) 
+       VALUES ($1, $2, $3, $4)`,
+      [filePath, sanitizedVendorId, fileName, deleteAfter]
+    );
+
     const command = new PutObjectCommand({
       Bucket: bucketName,
       Key: filePath,
-      ChecksumAlgorithm: undefined, // Explicitly disable to prevent CRC32 headers
-      // No ContentType here: SigV4 signature will be header-agnostic
+      ChecksumAlgorithm: undefined,
     });
 
     const uploadUrl = await getSignedUrl(r2, command, { expiresIn: 600 });

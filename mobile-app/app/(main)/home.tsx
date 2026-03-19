@@ -38,7 +38,9 @@ import {
   User,
   Mail,
   UserCircle,
-  LayoutDashboard
+  LayoutDashboard,
+  Eye,
+  MoreHorizontal
 } from "lucide-react-native";
 import { getAuthData, UserData } from "../../utils/authStorage";
 import { Modal } from 'react-native';
@@ -48,7 +50,8 @@ import { decode } from "base64-arraybuffer";
 
 const printHistoryData = [
   {
-    fileName: "file_name_1",  
+    fileName: "Project_Proposal_Full_V2.pdf",  
+    sender: "@adityaverma",
     time: "09:46",
     date: "22-02-26",
     status: "completed",
@@ -56,7 +59,8 @@ const printHistoryData = [
       "https://c.animaapp.com/mm942dqfWjFW8r/img/free-file-icon-1453-thumb-2.png",
   },
   {
-    fileName: "file_name_2",
+    fileName: "IMG_20260318_125431_SCAN.jpg",
+    sender: "@snehakapoor",
     time: "12:54",
     date: "20-02-26",
     status: "in_queue",
@@ -64,7 +68,8 @@ const printHistoryData = [
       "https://c.animaapp.com/mm942dqfWjFW8r/img/free-file-icon-1453-thumb-2.png",
   },
   {
-    fileName: "file_name_3",
+    fileName: "Thesis_Final_Draft_Final_Final.docx",
+    sender: "@rohandas",
     time: "15:20",
     date: "19-02-26",
     status: "failed",
@@ -792,7 +797,7 @@ export default function HomePage() {
         <View style={styles.section}>
           <Text style={styles.sectionTitleLeft}>Print history</Text>
 
-          {printHistoryData.map((item, index) => (
+          {printHistoryData.map((item: any, index: number) => (
             <View
               key={`print-history-${index}`}
               style={[
@@ -800,36 +805,44 @@ export default function HomePage() {
                 index < printHistoryData.length - 1 && styles.historyCardGap,
               ]}
             >
-              {/* Left: icon + info */}
-              <TouchableOpacity style={styles.historyLeftTouch}>
-                <View style={styles.historyLeft}>
-                  <View style={styles.fileIconCircle}>
-                    <FileText size={24} color="#1271dd" />
-                  </View>
-                  <View style={styles.historyInfo}>
-                    <Text style={styles.historyFileName} numberOfLines={1}>
-                      {item.fileName}
-                    </Text>
-                    <View style={styles.historyMeta}>
-                      <Text style={styles.historyMetaText}>{item.time}</Text>
-                      <Text style={styles.historyMetaText}>{item.date}</Text>
-                    </View>
-                  </View>
-                </View>
-              </TouchableOpacity>
+              {/* Left: icon */}
+              <View style={styles.fileIconCircle}>
+                <FileText size={22} color="#1271dd" strokeWidth={2} />
+              </View>
 
-              {/* Right: status badge */}
-              <View
-                style={[
-                  styles.statusBadge,
-                  item.status === "completed" && styles.statusBadgeCompleted,
-                  item.status === "in_queue" && styles.statusBadgeQueue,
-                  item.status === "failed" && styles.statusBadgeFailed,
-                ]}
-              >
-                {item.status === "completed" && <CheckCircle2 size={24} color="#1271dd" />}
-                {item.status === "in_queue" && <Clock size={24} color="#f5a623" />}
-                {item.status === "failed" && <XCircle size={24} color="#e31e1e" />}
+              {/* Middle: Info */}
+              <View style={styles.historyInfo}>
+                <Text style={styles.historyFileName} numberOfLines={1} ellipsizeMode="tail">
+                  {item.fileName}
+                </Text>
+                <View style={styles.historyMeta}>
+                  <Text style={styles.historySenderText}>{item.sender}</Text>
+                  <View style={styles.dotSeparator} />
+                  <Text style={styles.historyMetaText}>{item.time}</Text>
+                </View>
+              </View>
+
+              {/* Right: Actions & Status */}
+              <View style={styles.historyActions}>
+                <TouchableOpacity 
+                  style={styles.viewHistoryBtn}
+                  onPress={() => Alert.alert("Preview", `Opening ${item.fileName}...`)}
+                >
+                  <Eye size={18} color="#64748b" />
+                </TouchableOpacity>
+
+                <View
+                  style={[
+                    styles.statusBadgeSmall,
+                    item.status === "completed" && styles.statusBadgeCompleted,
+                    item.status === "in_queue" && styles.statusBadgeQueue,
+                    item.status === "failed" && styles.statusBadgeFailed,
+                  ]}
+                >
+                  {item.status === "completed" && <CheckCircle2 size={16} color="#1271dd" strokeWidth={2.5} />}
+                  {item.status === "in_queue" && <Clock size={16} color="#f5a623" strokeWidth={2.5} />}
+                  {item.status === "failed" && <XCircle size={16} color="#e31e1e" strokeWidth={2.5} />}
+                </View>
               </View>
             </View>
           ))}
@@ -1106,56 +1119,84 @@ const styles = StyleSheet.create({
   },
   historyCard: {
     backgroundColor: "#ffffff",
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 16,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 14,
     borderWidth: 1,
-    borderColor: "#f0f0f0",
+    borderColor: "#f1f5f9",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 3,
   },
   historyCardGap: {
     marginBottom: 16,
   },
-  historyLeftTouch: {
-    flex: 1,
-  },
-  historyLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
   fileIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
+    width: 50,
+    height: 50,
+    borderRadius: 15,
     backgroundColor: "#f0f7ff",
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#e0efff",
   },
   historyInfo: {
     flex: 1,
-    flexDirection: "column",
+    justifyContent: "center",
   },
   historyFileName: {
-    color: "#2e3563",
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 4,
+    color: "#1e293b",
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 2,
   },
   historyMeta: {
     flexDirection: "row",
-    gap: 8,
+    alignItems: "center",
+    gap: 6,
+  },
+  historySenderText: {
+    color: "#1271dd",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  dotSeparator: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: "#cbd5e1",
   },
   historyMetaText: {
-    color: "#979797",
+    color: "#64748b",
     fontSize: 12,
     fontWeight: "500",
+  },
+  historyActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  viewHistoryBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "#f8fafc",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#f1f5f9",
+  },
+  statusBadgeSmall: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
   },
   statusBadge: {
     width: 48,

@@ -1,17 +1,14 @@
 const cron = require('node-cron');
 const r2 = require('../r2');
-const { ListObjectsV2Command, DeleteObjectsCommand } = require('@aws-sdk/client-s3');
+const db = require('../db');
+const { DeleteObjectsCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 
 /**
- * Cleanup expired files from R2.
- * 
- * IMPORTANT: ListObjectsV2 and DeleteObjects are Class A operations on Cloudflare R2.
- * Each invocation costs at minimum 1 LIST call. Keep the cron schedule conservative
- * to avoid racking up Class A ops. For automatic expiry without API calls,
- * consider using R2 Lifecycle Rules in the Cloudflare Dashboard instead.
+ * Cleanup expired files from R2 using Database tracking.
+ * This is more efficient than listing the entire bucket.
  */
 const cleanupOldFiles = async () => {
-  console.log('[Cleanup] Starting: Searching for files older than 2 hours...');
+  console.log('[Cleanup] Starting database-driven cleanup...');
 
   try {
     const bucketName = process.env.R2_BUCKET_NAME;
@@ -20,66 +17,88 @@ const cleanupOldFiles = async () => {
       return;
     }
 
-    const now = new Date();
-    const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
-    const allObjectsToDelete = [];
+    // 1. Query only specific files marked for deletion whose time has come
+    const expiredResult = await db.supabaseQuery(
+      'SELECT id, object_key FROM uploaded_files WHERE delete_after <= NOW() AND deleted_at IS NULL'
+    );
 
-    // Paginate through all objects (1 LIST call per 1000 objects)
-    let continuationToken = undefined;
-    do {
-      const listCommand = new ListObjectsV2Command({
-        Bucket: bucketName,
-        ContinuationToken: continuationToken,
-        MaxKeys: 1000,
-      });
-
-      const listedObjects = await r2.send(listCommand);
-
-      if (listedObjects.Contents && listedObjects.Contents.length > 0) {
-        const expired = listedObjects.Contents
-          .filter((obj) => new Date(obj.LastModified) < twoHoursAgo)
-          .map((obj) => ({ Key: obj.Key }));
-        allObjectsToDelete.push(...expired);
-      }
-
-      continuationToken = listedObjects.IsTruncated ? listedObjects.NextContinuationToken : undefined;
-    } while (continuationToken);
+    const allObjectsToDelete = expiredResult.rows;
 
     if (allObjectsToDelete.length === 0) {
-      console.log('[Cleanup] No expired files found.');
+      console.log('[Cleanup] No expired files found in database.');
       return;
     }
 
-    // R2 DeleteObjects supports max 1000 keys per call
+    console.log(`[Cleanup] Found ${allObjectsToDelete.length} expired files. Deleting...`);
+
+    // 2. Delete in batches of 1000 (R2 limit)
     for (let i = 0; i < allObjectsToDelete.length; i += 1000) {
       const batch = allObjectsToDelete.slice(i, i + 1000);
-      const deleteCommand = new DeleteObjectsCommand({
-        Bucket: bucketName,
-        Delete: { Objects: batch },
-      });
+      const keys = batch.map(obj => ({ Key: obj.object_key }));
+      const ids = batch.map(obj => obj.id);
 
-      await r2.send(deleteCommand);
-      console.log(`[Cleanup] Deleted batch of ${batch.length} expired files.`);
+      try {
+        await r2.send(new DeleteObjectsCommand({
+          Bucket: bucketName,
+          Delete: { Objects: keys },
+        }));
+
+        // 3. Mark as deleted in DB
+        await db.supabaseQuery(
+          'UPDATE uploaded_files SET deleted_at = NOW() WHERE id = ANY($1)',
+          [ids]
+        );
+        
+        console.log(`[Cleanup] Successfully deleted and marked ${batch.length} files.`);
+      } catch (err) {
+        console.error(`[Cleanup] Error deleting batch:`, err.message);
+        // We don't mark as deleted so it retries next time
+      }
     }
 
-    console.log(`[Cleanup] Done. Total deleted: ${allObjectsToDelete.length}`);
+    console.log(`[Cleanup] Done. Combined total processed: ${allObjectsToDelete.length}`);
   } catch (error) {
-    console.error('[Cleanup] Error:', error.message || error);
+    console.error('[Cleanup] Fatal Error:', error.message || error);
   }
 };
 
-// Run every 2 hours — deletes files older than 2 hours.
-// Each run = 1 LIST call + 1 DELETE call (if expired files exist).
-// At 2h interval: ~12 LIST ops/day.
+/**
+ * Manually delete a specific file (used for explicit removals)
+ */
+const manualDeleteFile = async (objectKey) => {
+  try {
+    const bucketName = process.env.R2_BUCKET_NAME;
+    
+    // 1. Delete from R2
+    await r2.send(new DeleteObjectCommand({
+      Bucket: bucketName,
+      Key: objectKey
+    }));
+
+    // 2. Update DB
+    await db.supabaseQuery(
+      'UPDATE uploaded_files SET deleted_at = NOW() WHERE object_key = $1',
+      [objectKey]
+    );
+
+    console.log(`[Manual Delete] Success: ${objectKey}`);
+    return true;
+  } catch (err) {
+    console.error(`[Manual Delete] Failed: ${objectKey}`, err.message);
+    throw err;
+  }
+};
+
+// Run periodically according to set schedule (every 2 hours)
 const startCleanupTask = () => {
-  // Run immediately on startup to catch any stale files (e.g. from yesterday)
+  // Run on startup
   cleanupOldFiles();
 
-  // Then schedule recurring cleanup every 2 hours
+  // Then schedule recurring cleanup
   cron.schedule('0 */2 * * *', () => {
     cleanupOldFiles();
   });
-  console.log('[Cleanup] Task scheduled (every 2 hours + immediate run on startup).');
+  console.log('[Cleanup] Database-driven task scheduled (every 2 hours).');
 };
 
-module.exports = { startCleanupTask, cleanupOldFiles };
+module.exports = { startCleanupTask, cleanupOldFiles, manualDeleteFile };

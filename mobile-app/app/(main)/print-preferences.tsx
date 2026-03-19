@@ -181,23 +181,8 @@ const PrintSettings = () => {
           try {
                const { token } = await getAuthData();
 
-               // Step 1: Clear any old files in this vendor's R2 folder
-               // This ensures each vendor has only ONE folder with the latest files
-               try {
-                    await fetch(`${API_URL}/vendors/files/clear-vendor`, {
-                         method: 'POST',
-                         headers: {
-                              'Content-Type': 'application/json',
-                              'x-auth-token': token || ''
-                         },
-                         body: JSON.stringify({ vendorId: vendorId })
-                    });
-                    console.log("[R2] Cleared old vendor files before new upload");
-               } catch (clearErr) {
-                    console.warn("[R2] Could not clear old files (non-critical):", clearErr);
-               }
-
-               // Step 2: Upload new files
+               // Proceed to upload new files
+               // We no longer clear the vendor folder automatically to allow files to persist until cron cleanup
                const uploadResults = await Promise.all(uploadedFiles.map(async (file) => {
                     const urlResponse = await fetch(`${API_URL}/vendors/files/upload-url`, {
                          method: 'POST',

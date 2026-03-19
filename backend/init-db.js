@@ -27,15 +27,29 @@ const initDb = async () => {
     );
   `;
 
+  const createUploadsTableQuery = `
+    CREATE TABLE IF NOT EXISTS uploaded_files (
+      id SERIAL PRIMARY KEY,
+      object_key VARCHAR(512) UNIQUE NOT NULL,
+      vendor_id VARCHAR(50) NOT NULL,
+      file_name VARCHAR(255),
+      uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      delete_after TIMESTAMP NOT NULL,
+      deleted_at TIMESTAMP
+    );
+  `;
+
   try {
     console.log('--- Initializing Primary DB (Render Auth/Users) ---');
     await db.query(createUserTableQuery);
     await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE');
+    await db.query(createUploadsTableQuery);
     console.log('Primary DB ready.');
 
     console.log('--- Initializing Supabase DB (Vendors) ---');
     try {
       await db.supabaseQuery(createVendorTableQuery);
+      await db.supabaseQuery(createUploadsTableQuery);
       
       // Ensure vendors table has all required columns
       await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS bw_price DECIMAL(10, 2) NOT NULL DEFAULT 0');
