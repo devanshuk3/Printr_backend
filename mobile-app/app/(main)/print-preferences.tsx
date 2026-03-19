@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, TextInput, ScrollView, StyleSheet, Alert, Platform, Linking, Modal, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Plus, Minus, ChevronLeft, FileText, Hash, Copy, Check, X, Smartphone, AlertCircle } from 'lucide-react-native';
+import { Plus, Minus, ChevronLeft, FileText, Hash, Copy, Check, X, Smartphone, AlertCircle, CreditCard } from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { API_URL } from "../../constants/apiConfig";
 import * as IntentLauncher from 'expo-intent-launcher';
@@ -293,49 +293,17 @@ const PrintSettings = () => {
                return;
           }
 
-          const amount = pendingAmount;
-          const note = encodeURIComponent(`[${vendorId}] Print Job`);
-          const params = `pa=${upi}&pn=${encodeURIComponent(name)}&am=${amount}&tn=${note}&cu=INR`;
+          const amount = parseFloat(pendingAmount).toFixed(2);
+          const note = `[${vendorId}] Print Job`;
+          
+          // Browser-redirect Link: Bypass ₹2000 deep-link limit
+          const redirectUrl = `${API_URL}/pay?pa=${upi}&pn=${encodeURIComponent(name)}&am=${amount}&tn=${encodeURIComponent(note)}`;
 
           try {
-               if (Platform.OS === 'android') {
-                    const intentUrl = `intent://pay?${params}#Intent;scheme=upi;end`;
-                    try {
-                         await Linking.openURL(intentUrl);
-                    } catch (err) {
-                         // Fallback to plain upi:// if intent fails
-                         await Linking.openURL(`upi://pay?${params}`);
-                    }
-               } else if (Platform.OS === 'ios') {
-                    const iosSchemes = [
-                         'tez://upi/pay',
-                         'phonepe://pay',
-                         'paytmmp://pay',
-                         'bhim://pay',
-                         'upi://pay'
-                    ];
-
-                    let opened = false;
-                    for (const scheme of iosSchemes) {
-                         const url = `${scheme}?${params}`;
-                         if (await Linking.canOpenURL(url)) {
-                              await Linking.openURL(url);
-                              opened = true;
-                              break;
-                         }
-                    }
-
-                    if (!opened) {
-                         Alert.alert("No UPI App", "No UPI apps (GPay, PhonePe, Paytm, BHIM) found on this device.");
-                    }
-               } else if (Platform.OS === 'web') {
-                    (window as any).location.href = `upi://pay?${params}`;
-               } else {
-                    await Linking.openURL(`upi://pay?${params}`);
-               }
+               await Linking.openURL(redirectUrl);
           } catch (error) {
-               console.error("UPI deep link error:", error);
-               Alert.alert("Error", "Could not open UPI payment. Please try copying the UPI ID instead.");
+               console.error("UPI redirect error:", error);
+               Alert.alert("Error", "Could not initiate payment. Please use the UPI ID manually.");
           }
      };
 
@@ -572,6 +540,7 @@ const PrintSettings = () => {
                                     <Text style={styles.hintText}>Scan this QR using any UPI app (GPay, PhonePe, Paytm)</Text>
 
                                     <View style={styles.upiDirectContainer}>
+                                         <Text style={styles.upiGridTitle}>Pay via UPI App</Text>
                                          {isFetchingVendor ? (
                                               <View style={styles.upiLoadingBox}>
                                                    <ActivityIndicator color="#1271dd" size="small" />
@@ -989,7 +958,7 @@ const styles = StyleSheet.create({
      upiDirectBtn: {
           flexDirection: 'row',
           backgroundColor: '#1271dd',
-          paddingVertical: 16,
+          paddingVertical: 18,
           borderRadius: 16,
           alignItems: 'center',
           justifyContent: 'center',
@@ -1005,12 +974,21 @@ const styles = StyleSheet.create({
           fontSize: 16,
           fontWeight: '700',
      },
+     upiGridTitle: {
+          fontSize: 13,
+          fontWeight: '700',
+          color: '#94a3b8',
+          textTransform: 'uppercase',
+          letterSpacing: 1,
+          marginBottom: 16,
+          textAlign: 'center',
+     },
      upiLoadingBox: {
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
           gap: 10,
-          padding: 16,
+          padding: 20,
           backgroundColor: '#f8fbff',
           borderRadius: 16,
           borderWidth: 1,
@@ -1026,7 +1004,7 @@ const styles = StyleSheet.create({
           alignItems: 'center',
           justifyContent: 'center',
           gap: 10,
-          padding: 16,
+          padding: 20,
           backgroundColor: '#fef2f2',
           borderRadius: 16,
           borderWidth: 1,

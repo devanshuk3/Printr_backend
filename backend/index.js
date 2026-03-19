@@ -91,6 +91,33 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
+// Secure UPI Redirect for bypassing cap
+app.get('/api/pay', (req, res) => {
+  const { pa, pn, am, tn } = req.query;
+  const upiLink = `upi://pay?pa=${pa}&pn=${pn}&am=${am}&tn=${tn}&cu=INR`;
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Secure UPI Checkout</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="refresh" content="0;url=${upiLink}" />
+      </head>
+      <body style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: -apple-system, system-ui, sans-serif; text-align: center; background: #f0f7ff; color: #2e3563; padding: 20px; margin: 0;">
+        <div style="background: white; padding: 40px; borderRadius: 24px; box-shadow: 0 10px 40px rgba(46, 53, 99, 0.1); width: 100%; max-width: 320px;">
+          <h2 style="margin-top: 0; color: #1271dd;">Secure Payment</h2>
+          <p style="font-size: 16px; color: #64748b; margin-bottom: 30px;">Redirecting you to your selected UPI app...</p>
+          <a href="${upiLink}" style="display: inline-block; padding: 18px 40px; background: #1271dd; color: white; text-decoration: none; border-radius: 16px; font-weight: bold; shadow-color: #1271dd; box-shadow: 0 8px 20px rgba(18, 113, 221, 0.3); transition: transform 0.2s;">
+            Tap here if it doesn't open
+          </a>
+        </div>
+      </body>
+    </html>
+  `;
+  res.send(html);
+});
+
+
 // Routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/vendors', require('./routes/vendors'));
