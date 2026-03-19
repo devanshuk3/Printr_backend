@@ -91,27 +91,101 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
-// Secure UPI Redirect for bypassing cap
-app.get('/api/pay', (req, res) => {
-  const { pa, pn, am, tn } = req.query;
-  const upiLink = `upi://pay?pa=${pa}&pn=${pn}&am=${am}&tn=${tn}&cu=INR`;
+// Keep payment details hidden from the URL bar via session storage
+const paymentSessions = new Map();
+
+// 1. Initialize a payment session (POST from Mobile App)
+app.post('/api/pay/init', (req, res) => {
+  const { pa, pn, am, tn } = req.body;
+  if (!pa || !am) return res.status(400).json({ message: "Missing payment details" });
+  
+  const sessionId = Math.random().toString(36).substring(2, 15) + Date.now().toString(36).slice(-4);
+  paymentSessions.set(sessionId, { pa, pn, am, tn, createdAt: Date.now() });
+  
+  // Cleanup after 15 mins to prevent memory leak
+  setTimeout(() => paymentSessions.delete(sessionId), 15 * 60 * 1000);
+  
+  res.json({ sessionId });
+});
+
+// 2. Mediated Redirect Page (GET from Browser)
+app.get('/api/pay/:sessionId', (req, res) => {
+  const session = paymentSessions.get(req.params.sessionId);
+  if (!session) {
+    return res.status(110).send("<html><body style='font-family:sans-serif; text-align:center; padding-top:100px;'><h2>Access Denied</h2><p>Payment link is expired or invalid.</p></body></html>");
+  }
+  
+  const { pa, pn, am, tn } = session;
+  const upiLink = `upi://pay?pa=${pa}&pn=${pn}&am=${am}&tn=${tn || ''}&cu=INR`;
+  
   const html = `
     <!DOCTYPE html>
-    <html>
-      <head>
-        <title>Secure UPI Checkout</title>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <meta http-equiv="refresh" content="0;url=${upiLink}" />
-      </head>
-      <body style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: -apple-system, system-ui, sans-serif; text-align: center; background: #f0f7ff; color: #2e3563; padding: 20px; margin: 0;">
-        <div style="background: white; padding: 40px; borderRadius: 24px; box-shadow: 0 10px 40px rgba(46, 53, 99, 0.1); width: 100%; max-width: 320px;">
-          <h2 style="margin-top: 0; color: #1271dd;">Secure Payment</h2>
-          <p style="font-size: 16px; color: #64748b; margin-bottom: 30px;">Redirecting you to your selected UPI app...</p>
-          <a href="${upiLink}" style="display: inline-block; padding: 18px 40px; background: #1271dd; color: white; text-decoration: none; border-radius: 16px; font-weight: bold; shadow-color: #1271dd; box-shadow: 0 8px 20px rgba(18, 113, 221, 0.3); transition: transform 0.2s;">
-            Tap here if it doesn't open
-          </a>
-        </div>
-      </body>
+        <title>Processing Payment...</title>
+        <script>
+            function triggerRedirect() {
+                // Method 1: Location refresh
+                window.location.href = "${upiLink}";
+                
+                // Method 2: Click simulation (Robust fallback for Safari/Chrome focus)
+                setTimeout(() => {
+                    const link = document.createElement('a');
+                    link.href = "${upiLink}";
+                    link.style.display = 'none';
+                    document.body.appendChild(link);
+                    link.click();
+                }, 100);
+
+                // Method 3: Final fallback message
+                setTimeout(() => {
+                    document.getElementById('status').innerText = "Redirecting...";
+                    document.getElementById('manual-btn').style.display = 'inline-block';
+                }, 1500);
+            }
+        </script>
+        <style>
+            body { 
+                background: #f8fbff; 
+                display: flex; 
+                flex-direction: column; 
+                align-items: center; 
+                justify-content: center; 
+                height: 100vh; 
+                margin: 0; 
+                font-family: -apple-system, system-ui, sans-serif; 
+                color: #2e3563;
+            }
+            .loader {
+                border: 4px solid #f3f3f3;
+                border-top: 4px solid #1271dd;
+                border-radius: 50%;
+                width: 40px;
+                height: 40px;
+                animation: spin 1s linear infinite;
+                margin-bottom: 20px;
+            }
+            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+            #manual-btn {
+                display: none;
+                padding: 16px 32px;
+                background: #1271dd;
+                color: white;
+                text-decoration: none;
+                border-radius: 12px;
+                font-weight: 600;
+                margin-top: 20px;
+                box-shadow: 0 4px 15px rgba(18, 113, 221, 0.3);
+            }
+        </style>
+    </head>
+    <body onload="triggerRedirect()">
+        <div class="loader"></div>
+        <p id="status" style="font-weight: 500;">Securely handshaking with UPI app...</p>
+        <a id="manual-btn" href="${upiLink}">Continue to Payment App</a>
+    </body>
     </html>
   `;
   res.send(html);

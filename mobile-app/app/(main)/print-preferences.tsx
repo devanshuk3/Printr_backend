@@ -296,14 +296,28 @@ const PrintSettings = () => {
           const amount = parseFloat(pendingAmount).toFixed(2);
           const note = `[${vendorId}] Print Job`;
           
-          // Browser-redirect Link: Bypass ₹2000 deep-link limit
-          const redirectUrl = `${API_URL}/pay?pa=${upi}&pn=${encodeURIComponent(name)}&am=${amount}&tn=${encodeURIComponent(note)}`;
-
           try {
+               // 1. Initialize session to hide confidential info from URL bar
+               const initResponse = await fetch(`${API_URL}/pay/init`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                         pa: upi,
+                         pn: name,
+                         am: amount,
+                         tn: note
+                    })
+               });
+
+               if (!initResponse.ok) throw new Error("Payment initialization failed");
+               const { sessionId } = await initResponse.json();
+
+               // 2. Open browser with Opaque Session ID
+               const redirectUrl = `${API_URL}/pay/${sessionId}`;
                await Linking.openURL(redirectUrl);
           } catch (error) {
                console.error("UPI redirect error:", error);
-               Alert.alert("Error", "Could not initiate payment. Please use the UPI ID manually.");
+               Alert.alert("Error", "Could not initiate payment safely. Please use the UPI ID manually.");
           }
      };
 
