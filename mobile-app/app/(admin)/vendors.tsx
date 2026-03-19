@@ -12,6 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Store, Printer, IndianRupee, TrendingUp } from "lucide-react-native";
 import { API_URL } from "../../constants/apiConfig";
+import { getAuthData } from "../../utils/authStorage";
 
 // Vendor data is now fetched from the database
 
@@ -26,7 +27,12 @@ const AdminVendorsPage = () => {
 
   const fetchVendors = async () => {
     try {
-      const response = await fetch(`${API_URL}/vendors/all`);
+      const { token } = await getAuthData();
+      const response = await fetch(`${API_URL}/vendors/all`, {
+        headers: {
+          'x-auth-token': token || '',
+        },
+      });
       const data = await response.json();
       if (response.ok) {
         setVendors(data);

@@ -27,10 +27,6 @@ const LoginPage = () => {
   const router = useRouter();
 
   useEffect(() => {
-    // IMPORTANT: Configure GoogleSignin with your Web Client ID from Google Cloud Console.
-    // For standalone APKs to work, you MUST also have an Android Client ID entry 
-    // in Google Cloud Console with your package name "com.devanshu.printr" 
-    // and the SHA-1 fingerprint of your EAS build signing certificate.
     GoogleSignin.configure({
       webClientId: GOOGLE_CLIENT_ID,
       offlineAccess: true,
@@ -47,11 +43,9 @@ const LoginPage = () => {
     try {
       setLoading(true);
       await GoogleSignin.hasPlayServices();
-      // Force account selection every time by signing out of any previous session
       try {
         await GoogleSignin.signOut();
       } catch (e) {
-        // Ignore catch if no user was signed in
       }
       const userInfo = await GoogleSignin.signIn();
       if (userInfo.data?.idToken) {

@@ -91,6 +91,7 @@ export default function HomePage() {
   const [isUsernameModalVisible, setIsUsernameModalVisible] = useState(false);
   const [newUsername, setNewUsername] = useState("");
   const [usernameLoading, setUsernameLoading] = useState(false);
+  const [profileSeedOffset, setProfileSeedOffset] = useState(0);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -218,8 +219,12 @@ export default function HomePage() {
   };
 
   const robohashUrl = userData 
-    ? `https://robohash.org/${getAvatarHash(userData.username || userData.id.toString())}.png?set=set4` 
+    ? `https://robohash.org/${getAvatarHash((userData.username || userData.id.toString()) + profileSeedOffset)}.png?set=set4` 
     : null;
+
+  const handleChangeProfileIcon = () => {
+    setProfileSeedOffset(prev => prev + 1);
+  };
 
   const handleDeleteAccount = async () => {
     Alert.alert(
@@ -486,12 +491,19 @@ export default function HomePage() {
               </View>
 
               <View style={styles.profileContent}>
-                <View style={styles.profileImageLargeContainer}>
+                <View style={[styles.profileImageLargeContainer, { position: 'relative' }]}>
                   {robohashUrl ? (
                     <Image source={{ uri: robohashUrl }} style={styles.profileImageLarge} />
                   ) : (
                     <UserCircle size={100} color="#1271dd" />
                   )}
+                  <TouchableOpacity 
+                    style={styles.changeProfileIconBtn}
+                    onPress={handleChangeProfileIcon}
+                    activeOpacity={0.8}
+                  >
+                    <CloudUpload size={18} color="#ffffff" strokeWidth={2.5} />
+                  </TouchableOpacity>
                 </View>
 
                 <View style={styles.profileInfoList}>
@@ -1273,9 +1285,27 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   profileImageSmall: {
-    width: 44,
-    height: 44,
+    width: 32,
+    height: 32,
     resizeMode: "contain",
+  },
+  changeProfileIconBtn: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    backgroundColor: "#1271dd",
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 3,
+    borderColor: "#ffffff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
   profileDeleteBtn: {
     width: "100%",
