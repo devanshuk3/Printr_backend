@@ -212,6 +212,9 @@ const PrintSettings = () => {
                       const uploadRes = await FileSystem.uploadAsync(uploadUrl, file.uri, {
                            httpMethod: 'PUT',
                            uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+                           headers: {
+                                'Content-Type': file.mimeType || 'application/octet-stream'
+                           }
                       });
 
                       if (uploadRes.status < 200 || uploadRes.status >= 300) {
@@ -263,6 +266,9 @@ const PrintSettings = () => {
                          const jsonUploadRes = await FileSystem.uploadAsync(jsonUploadUrl, jsonFilePath, {
                               httpMethod: 'PUT',
                               uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+                              headers: {
+                                   'Content-Type': 'application/json'
+                              }
                          });
                          
                          if (jsonUploadRes.status < 200 || jsonUploadRes.status >= 300) {

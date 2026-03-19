@@ -184,7 +184,8 @@ router.post('/files/upload-url', [
     'image/webp',
     'application/msword', 
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/octet-stream'
+    'application/octet-stream',
+    'application/json'
   ]).withMessage('Unsupported file type'),
   validate
 ], async (req, res) => {
@@ -223,6 +224,7 @@ router.post('/files/upload-url', [
     const command = new PutObjectCommand({
       Bucket: bucketName,
       Key: filePath,
+      ContentType: contentType, // Sign the content type
       ChecksumAlgorithm: undefined,
     });
 
