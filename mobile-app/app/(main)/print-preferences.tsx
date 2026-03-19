@@ -176,55 +176,57 @@ const PrintSettings = () => {
           </View>
      );
 
-     const performUpload = async () => {
-          setIsUploading(true);
-          try {
-               const { token } = await getAuthData();
+      const performUpload = async () => {
+           setIsUploading(true);
+           try {
+                const { token, user } = await getAuthData();
+                const username = user?.username || "unknown";
+                const orderId = Date.now().toString();
 
-               // Proceed to upload new files
-               // We no longer clear the vendor folder automatically to allow files to persist until cron cleanup
-               const uploadResults = await Promise.all(uploadedFiles.map(async (file) => {
-                    const urlResponse = await fetch(`${API_URL}/vendors/files/upload-url`, {
-                         method: 'POST',
-                         headers: { 
-                              'Content-Type': 'application/json',
-                              'x-auth-token': token || ''
-                         },
-                         body: JSON.stringify({
-                              vendorId: vendorId,
-                              fileName: file.name,
-                              contentType: file.mimeType || 'application/octet-stream'
-                         })
-                    });
+                // Step 1: Upload Original Files
+                const uploadResults = await Promise.all(uploadedFiles.map(async (file, index) => {
+                     // Naming pattern: username_orderid_originalfilename.ext
+                     const standardizedFileName = `${username}_${orderId}_${file.name}`;
 
-                    if (!urlResponse.ok) {
-                         const errorData = await urlResponse.json();
-                         throw new Error(errorData.message || "Failed to get upload URL");
-                    }
-
-                     const { uploadUrl, filePath } = await urlResponse.json();
-                     
-                     // Use Native FileSystem upload (more robust on Android)
-                     const uploadRes = await FileSystem.uploadAsync(uploadUrl, file.uri, {
-                          httpMethod: 'PUT',
-                          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+                     const urlResponse = await fetch(`${API_URL}/vendors/files/upload-url`, {
+                          method: 'POST',
+                          headers: { 
+                               'Content-Type': 'application/json',
+                               'x-auth-token': token || ''
+                          },
+                          body: JSON.stringify({
+                               vendorId: vendorId,
+                               fileName: standardizedFileName,
+                               contentType: file.mimeType || 'application/octet-stream'
+                          })
                      });
 
-                     if (uploadRes.status < 200 || uploadRes.status >= 300) {
-                          const errorBody = uploadRes.body || `Status ${uploadRes.status}`;
-                          console.log(`[DEBUG] R2 Error: ${errorBody}`);
-                          throw new Error(`Cloud storage upload failed (${uploadRes.status}): ${errorBody}`);
+                     if (!urlResponse.ok) {
+                          const errorData = await urlResponse.json();
+                          throw new Error(errorData.message || "Failed to get upload URL");
                      }
-                     return filePath;
+
+                      const { uploadUrl, filePath } = await urlResponse.json();
+                      
+                      // Use Native FileSystem upload
+                      const uploadRes = await FileSystem.uploadAsync(uploadUrl, file.uri, {
+                           httpMethod: 'PUT',
+                           uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+                      });
+
+                      if (uploadRes.status < 200 || uploadRes.status >= 300) {
+                           throw new Error(`Cloud storage upload failed (${uploadRes.status})`);
+                      }
+                      return filePath;
                 }));
 
-               // Step 3: Create and upload Print Preferences JSON
+               // Step 2: Create and upload Print Preferences JSON
                try {
-                    const { user } = await getAuthData();
                     const preferences = {
-                         jobId: Date.now().toString(),
-                         senderUsername: user?.username || "unknown",
+                         jobId: orderId,
+                         senderUsername: username,
                          vendorId: vendorId,
+                         userId: user?.id || 0,
                          files: uploadedFiles.map(f => f.name),
                          preferences: {
                               copies,
@@ -239,7 +241,8 @@ const PrintSettings = () => {
                          timestamp: new Date().toISOString()
                     };
 
-                    const jsonFilePath = `${FileSystem.cacheDirectory}print_job_${Date.now()}.json`;
+                    const jsonFileName = `job_preferences_${username}_${orderId}.json`;
+                    const jsonFilePath = `${FileSystem.cacheDirectory}${jsonFileName}`;
                     await FileSystem.writeAsStringAsync(jsonFilePath, JSON.stringify(preferences, null, 2));
 
                     const urlResponseJson = await fetch(`${API_URL}/vendors/files/upload-url`, {
@@ -250,24 +253,27 @@ const PrintSettings = () => {
                          },
                          body: JSON.stringify({
                               vendorId: vendorId,
-                              fileName: `job_preferences_${Date.now()}.json`,
+                              fileName: jsonFileName,
                               contentType: 'application/json'
                          })
                     });
 
                     if (urlResponseJson.ok) {
                          const { uploadUrl: jsonUploadUrl } = await urlResponseJson.json();
-                         await FileSystem.uploadAsync(jsonUploadUrl, jsonFilePath, {
+                         const jsonUploadRes = await FileSystem.uploadAsync(jsonUploadUrl, jsonFilePath, {
                               httpMethod: 'PUT',
                               uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
                          });
+                         
+                         if (jsonUploadRes.status < 200 || jsonUploadRes.status >= 300) {
+                             console.warn("JSON upload failed but continuing...", jsonUploadRes.status);
+                         }
                     }
-                    console.log("Job preferences JSON uploaded successfully");
                } catch (jsonErr) {
                     console.error("Failed to upload preferences JSON (non-fatal):", jsonErr);
                }
 
-               console.log("All files uploaded to R2:", uploadResults);
+               console.log("All files for order " + orderId + " uploaded successfully");
                return uploadResults;
           } catch (error: any) {
                console.error("Upload to R2 failed:", error);

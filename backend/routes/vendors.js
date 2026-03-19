@@ -198,11 +198,12 @@ router.post('/files/upload-url', [
     // Strict sanitization - folder names are always lowercase for case-insensitivity
     const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
     const extension = fileName.split('.').pop()?.toLowerCase() || 'unknown';
-    const cleanFileName = fileName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+    // Preserve the fileName provided (which now contains username_orderid)
+    const cleanFileName = fileName.split('.').slice(0, -1).join('.').replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 100);
     
-    // REQUIREMENT: Combination of Date.now() and randomUUID() for absolute uniqueness
-    const uniqueId = crypto.randomUUID();
-    const filePath = `${sanitizedVendorId}/${Date.now()}_${uniqueId}.${extension}`;
+    // Ensure uniqueness while respecting the requested naming convention
+    const uniqueId = crypto.randomUUID().substring(0, 8); // Shorter suffix for cleaner names
+    const filePath = `${sanitizedVendorId}/${cleanFileName}_${uniqueId}.${extension}`;
 
     const bucketName = process.env.R2_BUCKET_NAME ? process.env.R2_BUCKET_NAME.trim() : '';
     if (!bucketName) {
