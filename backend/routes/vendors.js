@@ -212,11 +212,11 @@ router.post('/files/upload-url', [
     // Insert record into database before uploading
     // Default retention: 2 hours
     const deleteAfter = new Date(Date.now() + 2 * 60 * 60 * 1000);
-    
+
     await db.supabaseQuery(
-      `INSERT INTO uploaded_files (object_key, vendor_id, file_name, delete_after) 
-       VALUES ($1, $2, $3, $4)`,
-      [filePath, sanitizedVendorId, fileName, deleteAfter]
+      `INSERT INTO uploaded_files (object_key, vendor_id, user_id, file_name, status, delete_after)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [filePath, sanitizedVendorId, req.user.id, fileName, 'uploaded', deleteAfter]
     );
 
     const command = new PutObjectCommand({
@@ -230,6 +230,48 @@ router.post('/files/upload-url', [
   } catch (err) {
     console.error("R2 Upload URL Error Detail:", err);
     handleError(res, err, "Generating upload URL failed");
+  }
+});
+
+// Get Print History for the current user (PROTECTED)
+router.get('/files/history', auth, async (req, res) => {
+  try {
+    const historyRes = await db.supabaseQuery(
+      `SELECT f.file_name, f.uploaded_at, f.status, f.deleted_at, v.shop_name
+       FROM uploaded_files f
+       LEFT JOIN vendors v ON LOWER(f.vendor_id) = LOWER(v.vendor_id)
+       WHERE f.user_id = $1
+       ORDER BY f.uploaded_at DESC
+       LIMIT 50`,
+      [req.user.id]
+    );
+
+    const mappedHistory = historyRes.rows.map(row => {
+      // Logic for status mapping
+      let displayStatus = 'in_queue'; 
+      if (row.status === 'printed' || row.deleted_at) {
+        displayStatus = 'completed';
+      } else if (row.status === 'failed') {
+        displayStatus = 'failed';
+      }
+
+      // Format date/time
+      const dt = new Date(row.uploaded_at);
+      const timeStr = dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      const dateStr = dt.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' }).replace(/\//g, '-');
+
+      return {
+        fileName: row.file_name,
+        time: timeStr,
+        date: dateStr,
+        status: displayStatus,
+        vendorName: row.shop_name || "Unknown Vendor"
+      };
+    });
+
+    res.json(mappedHistory);
+  } catch (err) {
+    handleError(res, err, "Fetching print history failed");
   }
 });
 

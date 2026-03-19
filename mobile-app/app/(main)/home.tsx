@@ -1,4 +1,4 @@
-import React, { JSX, useState, useEffect } from "react";
+import React, { JSX, useState, useEffect, useCallback } from "react";
 import { sharedFullName, setSharedFullName } from "../../utils/sharedState";
 import {
   View,
@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
-import { useRouter, useLocalSearchParams } from "expo-router";
+import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { clearAuthData, saveAuthData } from "../../utils/authStorage";
 import * as IntentLauncher from "expo-intent-launcher";
 import * as WebBrowser from "expo-web-browser";
@@ -48,35 +48,7 @@ import { decode } from "base64-arraybuffer";
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
-const printHistoryData = [
-  {
-    fileName: "Project_Proposal_Full_V2.pdf",  
-    sender: "@adityaverma",
-    time: "09:46",
-    date: "22-02-26",
-    status: "completed",
-    iconSrc:
-      "https://c.animaapp.com/mm942dqfWjFW8r/img/free-file-icon-1453-thumb-2.png",
-  },
-  {
-    fileName: "IMG_20260318_125431_SCAN.jpg",
-    sender: "@snehakapoor",
-    time: "12:54",
-    date: "20-02-26",
-    status: "in_queue",
-    iconSrc:
-      "https://c.animaapp.com/mm942dqfWjFW8r/img/free-file-icon-1453-thumb-2.png",
-  },
-  {
-    fileName: "Thesis_Final_Draft_Final_Final.docx",
-    sender: "@rohandas",
-    time: "15:20",
-    date: "19-02-26",
-    status: "failed",
-    iconSrc:
-      "https://c.animaapp.com/mm942dqfWjFW8r/img/free-file-icon-1453-thumb-2.png",
-  },
-];
+// History data will be fetched dynamically from the backend
 
 // Lucide icons are imported directly, so we don't need the local icon components
 
@@ -100,6 +72,8 @@ export default function HomePage() {
   const [newUsername, setNewUsername] = useState("");
   const [usernameLoading, setUsernameLoading] = useState(false);
   const [profileSeedOffset, setProfileSeedOffset] = useState(0);
+  const [history, setHistory] = useState<any[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -161,6 +135,34 @@ export default function HomePage() {
     }
     return total;
   };
+
+  // Fetch print history from backend
+  const fetchHistory = useCallback(async () => {
+    try {
+      setIsLoadingHistory(true);
+      const { token } = await getAuthData();
+      if (!token) return;
+
+      const response = await fetch(`${API_URL}/vendors/files/history`, {
+        headers: { 'x-auth-token': token || '' }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setHistory(data);
+      }
+    } catch (error) {
+      console.error("Error fetching history:", error);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchHistory();
+    }, [fetchHistory])
+  );
 
   const handleUpdateUsername = async () => {
     if (!newUsername.trim()) {
@@ -799,57 +801,66 @@ export default function HomePage() {
 
         {/* ── Print History ── */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitleLeft}>Print history</Text>
+          <TouchableOpacity onPress={fetchHistory} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+             <Text style={[styles.sectionTitleLeft, { marginBottom: 0 }]}>Print history</Text>
+             {isLoadingHistory && <RefreshCcw size={16} color="#1271dd" />}
+          </TouchableOpacity>
 
-          {printHistoryData.map((item: any, index: number) => (
-            <View
-              key={`print-history-${index}`}
-              style={[
-                styles.historyCard,
-                index < printHistoryData.length - 1 && styles.historyCardGap,
-              ]}
-            >
-              {/* Left: icon */}
-              <View style={styles.fileIconCircle}>
-                <FileText size={22} color="#1271dd" strokeWidth={2} />
-              </View>
-
-              {/* Middle: Info */}
-              <View style={styles.historyInfo}>
-                <Text style={styles.historyFileName} numberOfLines={1} ellipsizeMode="tail">
-                  {item.fileName}
-                </Text>
-                <View style={styles.historyMeta}>
-                  <Text style={styles.historySenderText}>{item.sender}</Text>
-                  <View style={styles.dotSeparator} />
-                  <Text style={styles.historyMetaText}>{item.time}</Text>
-                </View>
-              </View>
-
-              {/* Right: Actions & Status */}
-              <View style={styles.historyActions}>
-                <TouchableOpacity 
-                  style={styles.viewHistoryBtn}
-                  onPress={() => Alert.alert("Preview", `Opening ${item.fileName}...`)}
-                >
-                  <Eye size={18} color="#64748b" />
-                </TouchableOpacity>
-
-                <View
-                  style={[
-                    styles.statusBadgeSmall,
-                    item.status === "completed" && styles.statusBadgeCompleted,
-                    item.status === "in_queue" && styles.statusBadgeQueue,
-                    item.status === "failed" && styles.statusBadgeFailed,
-                  ]}
-                >
-                  {item.status === "completed" && <CheckCircle2 size={16} color="#1271dd" strokeWidth={2.5} />}
-                  {item.status === "in_queue" && <Clock size={16} color="#f5a623" strokeWidth={2.5} />}
-                  {item.status === "failed" && <XCircle size={16} color="#e31e1e" strokeWidth={2.5} />}
-                </View>
-              </View>
+          {history.length === 0 ? (
+            <View style={styles.emptyHistory}>
+              <Text style={styles.emptyHistoryText}>No recent print jobs found.</Text>
             </View>
-          ))}
+          ) : (
+            history.map((item: any, index: number) => (
+              <View
+                key={`print-history-${index}`}
+                style={[
+                  styles.historyCard,
+                  index < history.length - 1 && styles.historyCardGap,
+                ]}
+              >
+                {/* Left: icon */}
+                <View style={styles.fileIconCircle}>
+                  <FileText size={22} color="#1271dd" strokeWidth={2} />
+                </View>
+
+                {/* Middle: Info */}
+                <View style={styles.historyInfo}>
+                  <Text style={styles.historyFileName} numberOfLines={1} ellipsizeMode="tail">
+                    {item.fileName}
+                  </Text>
+                  <View style={styles.historyMeta}>
+                    <Text style={styles.historySenderText}>{item.vendorName}</Text>
+                    <View style={styles.dotSeparator} />
+                    <Text style={styles.historyMetaText}>{item.time} | {item.date}</Text>
+                  </View>
+                </View>
+
+                {/* Right: Actions & Status */}
+                <View style={styles.historyActions}>
+                  <TouchableOpacity 
+                    style={styles.viewHistoryBtn}
+                    onPress={() => Alert.alert("Job Status", `File "${item.fileName}" is currently ${item.status === 'completed' ? 'printed' : 'on the cloud'}.`)}
+                  >
+                    <Eye size={18} color="#64748b" />
+                  </TouchableOpacity>
+
+                  <View
+                    style={[
+                      styles.statusBadgeSmall,
+                      item.status === "completed" && styles.statusBadgeCompleted,
+                      item.status === "in_queue" && styles.statusBadgeQueue,
+                      item.status === "failed" && styles.statusBadgeFailed,
+                    ]}
+                  >
+                    {item.status === "completed" && <CheckCircle2 size={16} color="#1271dd" strokeWidth={2.5} />}
+                    {item.status === "in_queue" && <Clock size={16} color="#f5a623" strokeWidth={2.5} />}
+                    {item.status === "failed" && <XCircle size={16} color="#e31e1e" strokeWidth={2.5} />}
+                  </View>
+                </View>
+              </View>
+            ))
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -1139,6 +1150,21 @@ const styles = StyleSheet.create({
   historyCardGap: {
     marginBottom: 16,
   },
+  emptyHistory: {
+    padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8fafc',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderStyle: 'dashed',
+  },
+  emptyHistoryText: {
+    color: '#64748b',
+    fontSize: 14,
+    fontWeight: '500',
+  },
   fileIconCircle: {
     width: 50,
     height: 50,
@@ -1154,7 +1180,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   historyFileName: {
-    color: "#1e293b",
+    color: "#2e3563",
     fontSize: 15,
     fontWeight: "700",
     marginBottom: 2,
