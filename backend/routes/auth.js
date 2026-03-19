@@ -240,4 +240,26 @@ router.put('/username', [
   }
 });
 
+// Get user details by username (for Windows side lookup)
+router.get('/user/:username', [
+  auth
+], async (req, res) => {
+  const { username } = req.params;
+
+  try {
+    const userRes = await db.query(
+      'SELECT full_name, email, username FROM users WHERE LOWER(username) = LOWER($1)',
+      [username]
+    );
+
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json(userRes.rows[0]);
+  } catch (err) {
+    handleError(res, err, "Fetching user details failed");
+  }
+});
+
 module.exports = router;

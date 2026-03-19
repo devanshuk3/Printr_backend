@@ -441,6 +441,10 @@ export default function HomePage() {
       Alert.alert("Error", "Please enter a Vendor ID.");
       return;
     }
+    if (!verifiedVendor) {
+      Alert.alert("Vendor Required", "Please click 'Verify' to confirm your Vendor ID before proceeding.");
+      return;
+    }
     router.push({
       pathname: "/print-preferences",
       params: { 
@@ -784,7 +788,7 @@ export default function HomePage() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.saveButton, !hasUploaded && { opacity: 0.6 }]}
+              style={[styles.saveButton, (!hasUploaded || !verifiedVendor) && { opacity: 0.5 }]}
               activeOpacity={0.85}
               onPress={handleSave}
             >

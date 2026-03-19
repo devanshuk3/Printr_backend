@@ -205,7 +205,6 @@ const PrintSettings = () => {
                      const { uploadUrl, filePath } = await urlResponse.json();
                      
                      // Use Native FileSystem upload (more robust on Android)
-                     // By sending NO headers, we match the header-agnostic SigV4 hash
                      const uploadRes = await FileSystem.uploadAsync(uploadUrl, file.uri, {
                           httpMethod: 'PUT',
                           uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
@@ -218,6 +217,56 @@ const PrintSettings = () => {
                      }
                      return filePath;
                 }));
+
+               // Step 3: Create and upload Print Preferences JSON
+               try {
+                    const { user } = await getAuthData();
+                    const preferences = {
+                         jobId: Date.now().toString(),
+                         senderUsername: user?.username || "unknown",
+                         vendorId: vendorId,
+                         files: uploadedFiles.map(f => f.name),
+                         preferences: {
+                              copies,
+                              colorMode: formData.colorMode,
+                              layout: formData.layout,
+                              pageSelection: formData.pageSelection,
+                              customRange: formData.customRange,
+                              doubleSided: formData.doubleSided,
+                              totalPages: totalPages,
+                              totalAmount: totalCost
+                         },
+                         timestamp: new Date().toISOString()
+                    };
+
+                    const jsonFilePath = `${FileSystem.cacheDirectory}print_job_${Date.now()}.json`;
+                    await FileSystem.writeAsStringAsync(jsonFilePath, JSON.stringify(preferences, null, 2));
+
+                    const urlResponseJson = await fetch(`${API_URL}/vendors/files/upload-url`, {
+                         method: 'POST',
+                         headers: { 
+                              'Content-Type': 'application/json',
+                              'x-auth-token': token || ''
+                         },
+                         body: JSON.stringify({
+                              vendorId: vendorId,
+                              fileName: `job_preferences_${Date.now()}.json`,
+                              contentType: 'application/json'
+                         })
+                    });
+
+                    if (urlResponseJson.ok) {
+                         const { uploadUrl: jsonUploadUrl } = await urlResponseJson.json();
+                         await FileSystem.uploadAsync(jsonUploadUrl, jsonFilePath, {
+                              httpMethod: 'PUT',
+                              uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+                         });
+                    }
+                    console.log("Job preferences JSON uploaded successfully");
+               } catch (jsonErr) {
+                    console.error("Failed to upload preferences JSON (non-fatal):", jsonErr);
+               }
+
                console.log("All files uploaded to R2:", uploadResults);
                return uploadResults;
           } catch (error: any) {
