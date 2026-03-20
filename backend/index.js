@@ -218,7 +218,7 @@ app.use((err, req, res, next) => {
   console.error('SERVER ERROR:', err.stack);
   res.status(err.status || 500).json({
     message: process.env.NODE_ENV === 'production' 
-      ? "An unexpected error occurred" 
+      ? "An unexpected error occurred"
       : err.message
   });
 });
