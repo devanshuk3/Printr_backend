@@ -127,44 +127,40 @@ router.post('/files/clear-vendor', [
     if (!bucketName) throw new Error("R2_BUCKET_NAME is not configured");
 
     const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
-    const prefix = `${sanitizedVendorId}/`;
+    
+    // Optimize: Instead of LISTing the R2 bucket (Class A), we query the database
+    // This is much faster and cheaper as it avoids scanning the entire bucket folder.
+    const result = await db.supabaseQuery(
+      'SELECT id, object_key FROM uploaded_files WHERE LOWER(vendor_id) = LOWER($1) AND deleted_at IS NULL',
+      [sanitizedVendorId]
+    );
 
-    // List all objects under this vendor's prefix
-    let continuationToken = undefined;
-    const allKeys = [];
+    const allFiles = result.rows;
 
-    do {
-      const listCommand = new ListObjectsV2Command({
-        Bucket: bucketName,
-        Prefix: prefix,
-        ContinuationToken: continuationToken,
-        MaxKeys: 1000,
-      });
-
-      const listed = await r2.send(listCommand);
-
-      if (listed.Contents && listed.Contents.length > 0) {
-        allKeys.push(...listed.Contents.map(obj => ({ Key: obj.Key })));
-      }
-
-      continuationToken = listed.IsTruncated ? listed.NextContinuationToken : undefined;
-    } while (continuationToken);
-
-    if (allKeys.length === 0) {
+    if (allFiles.length === 0) {
       return res.json({ message: "No existing files to clear", deleted: 0 });
     }
 
     // Delete in batches of 1000 (R2 limit)
-    for (let i = 0; i < allKeys.length; i += 1000) {
-      const batch = allKeys.slice(i, i + 1000);
+    const keysToDelete = allFiles.map(file => ({ Key: file.object_key }));
+    const idsToDelete = allFiles.map(file => file.id);
+
+    for (let i = 0; i < keysToDelete.length; i += 1000) {
+      const batch = keysToDelete.slice(i, i + 1000);
       await r2.send(new DeleteObjectsCommand({
         Bucket: bucketName,
         Delete: { Objects: batch },
       }));
     }
 
-    console.log(`[R2] Cleared ${allKeys.length} old files for vendor: ${sanitizedVendorId}`);
-    res.json({ message: "Vendor folder cleared", deleted: allKeys.length });
+    // Mark as deleted in DB
+    await db.supabaseQuery(
+      'UPDATE uploaded_files SET deleted_at = NOW() WHERE id = ANY($1)',
+      [idsToDelete]
+    );
+
+    console.log(`[R2] Cleared ${allFiles.length} files from DB metadata for vendor: ${sanitizedVendorId}`);
+    res.json({ message: "Vendor folder cleared", deleted: allFiles.length });
   } catch (err) {
     console.error("Clear vendor files error:", err);
     handleError(res, err, "Clearing vendor files failed");
