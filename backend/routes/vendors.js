@@ -180,6 +180,10 @@ router.post('/files/upload-url', [
     'image/webp',
     'application/msword', 
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'application/octet-stream',
     'application/json'
   ]).withMessage('Unsupported file type'),

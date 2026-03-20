@@ -1,4 +1,4 @@
-import React, { JSX, useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { sharedFullName, setSharedFullName } from "../../utils/sharedState";
 import {
   View,
@@ -10,18 +10,18 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  Platform,
+  Linking,
+  Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
-import { clearAuthData, saveAuthData } from "../../utils/authStorage";
+import { clearAuthData, saveAuthData, getAuthData, UserData } from "../../utils/authStorage";
 import * as IntentLauncher from "expo-intent-launcher";
-import * as WebBrowser from "expo-web-browser";
-import { Platform } from "react-native";
 import * as Sharing from "expo-sharing";
 import { FilePreviewModal } from "../../components/modals/FilePreviewModal";
-import { Linking } from "react-native";
 import { API_URL } from "../../constants/apiConfig";
 import { getAvatarHash, getRobohashUrl } from "../../utils/avatar";
 import * as SecureStore from 'expo-secure-store';
@@ -42,8 +42,6 @@ import {
   Eye,
   MoreHorizontal
 } from "lucide-react-native";
-import { getAuthData, UserData } from "../../utils/authStorage";
-import { Modal } from 'react-native';
 import { decode } from "base64-arraybuffer";
 
 // ─── Data ────────────────────────────────────────────────────────────────────
@@ -486,7 +484,7 @@ export default function HomePage() {
                 </View>
                 <Text style={styles.usernameModalTitle}>Choose your username</Text>
                 <Text style={styles.usernameModalSubtitle}>
-                  Welcome to printr! You've logged in with Google. Before you start, please pick a unique username.
+                  Welcome to printr! You&apos;ve logged in with Google. Before you start, please pick a unique username.
                 </Text>
               </View>
 

@@ -1,14 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, StyleSheet, Alert, Platform, Linking, Modal, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, StyleSheet, Alert, Platform, Linking, Modal, Animated, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Plus, Minus, ChevronLeft, FileText, Hash, Copy, Check, X, Smartphone, AlertCircle, CreditCard } from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { API_URL } from "../../constants/apiConfig";
-import * as IntentLauncher from 'expo-intent-launcher';
-import { ActivityIndicator } from 'react-native';
 import { getAuthData } from "../../utils/authStorage";
-import Constants from 'expo-constants';
 // Fallback for Clipboard if native module is missing
 let Clipboard: any;
 try {

@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
 
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   Image,
   StyleSheet,
@@ -18,7 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { PasswordInput } from "../../components/ui/PasswordInput";
 import { FloatingLabelInput } from "../../components/ui/FloatingLabelInput";
-import { API_URL, GOOGLE_CLIENT_ID } from "../../constants/apiConfig";
+import { API_URL } from "../../constants/apiConfig";
 import { setSharedFullName } from "../../utils/sharedState";
 import { saveAuthData } from "../../utils/authStorage";
 import { Check } from "lucide-react-native";
@@ -42,6 +41,9 @@ const LoginPage = () => {
       // by ensuring the activity is correctly attached after any component state changes.
       await new Promise(resolve => setTimeout(resolve, 300));
 
+      // Force account selection by signing out first to show the picker
+      try { await GoogleSignin.signOut(); } catch (e) {}
+      
       const userInfo = await GoogleSignin.signIn();
       if (userInfo.data?.idToken) {
         handleGoogleLogin(userInfo.data.idToken);
@@ -96,7 +98,6 @@ const LoginPage = () => {
  
   const handleLogin = async () => {
     const trimmedIdentifier = identifier.trim();
-    const trimmedPassword = password; // Usually passwords shouldn't be trimmed, but leading/trailing spaces are rare intended chars. However, let's stay safe and only trim identifier.
     
     if (!trimmedIdentifier || !password.trim()) {
       Alert.alert("Error", "Please fill in both email/username and password");
@@ -229,7 +230,7 @@ const LoginPage = () => {
           {/* Separator */}
           <View style={styles.separatorRow}>
             <View style={styles.separatorLine} />
-            <Text style={styles.separatorText}>or sign up with</Text>
+            <Text style={styles.separatorText}>or login with</Text>
             <View style={styles.separatorLine} />
           </View>
 
