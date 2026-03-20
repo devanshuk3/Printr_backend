@@ -1,20 +1,21 @@
 {
   "expo": {
     "name": "Printr",
-    "slug": "printr",
+    "slug": "Printr",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/printr_logo.png",
+    "icon": "./assets/images/Printr_Logo_transparent_White.png",
     "scheme": "printr",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.devanshu.printr"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#ffffff",
-        "foregroundImage": "./assets/images/printr_logo.png",
+        "backgroundColor": "#000000",
+        "foregroundImage": "./assets/images/Printr_Logo_transparent_White.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
@@ -31,10 +32,10 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/printr_logo.png",
+          "image": "./assets/images/Printr_Logo_transparent_White.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#000000",
           "dark": {
             "backgroundColor": "#000000"
           }

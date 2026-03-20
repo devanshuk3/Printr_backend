@@ -81,10 +81,8 @@ app.use((req, res, next) => {
   next();
 });
 
-// Start Background Tasks
-if (process.env.NODE_ENV === 'production' || process.env.RENDER) {
-  startCleanupTask();
-}
+// Start Background Tasks (Always run cleanup in all environments to ensure it works)
+startCleanupTask();
 
 // Health check for Render
 app.get('/api/health', (req, res) => {

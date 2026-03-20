@@ -95,10 +95,10 @@ const startCleanupTask = () => {
   cleanupOldFiles();
 
   // Then schedule recurring cleanup
-  cron.schedule('0 */2 * * *', () => {
+  cron.schedule('*/30 * * * *', () => {
     cleanupOldFiles();
   });
-  console.log('[Cleanup] Database-driven task scheduled (every 2 hours).');
+  console.log('[Cleanup] Database-driven task scheduled (running every 30 minutes).');
 };
 
 module.exports = { startCleanupTask, cleanupOldFiles, manualDeleteFile };

@@ -33,13 +33,14 @@ export default function SignUp() {
      const promptAsync = async () => {
           try {
                setLoading(true);
+               
+               // Ensure play services are available
                await GoogleSignin.hasPlayServices();
-               // Force account selection every time by signing out of any previous session
-               try {
-                    await GoogleSignin.signOut();
-               } catch (e) {
-                    // Ignore catch if no user was signed in
-               }
+               
+               // A small delay helps avoid 'Current activity is null' errors in some React Native versions
+               // by ensuring the activity is correctly attached after any component re-render.
+               await new Promise(resolve => setTimeout(resolve, 300));
+
                const userInfo = await GoogleSignin.signIn();
                if (userInfo.data?.idToken) {
                     handleGoogleSignup(userInfo.data.idToken);
@@ -47,8 +48,13 @@ export default function SignUp() {
                     throw new Error("No ID Token found. Please check your Google Cloud Console configuration.");
                }
           } catch (error: any) {
-               console.error("Native Google Signup error:", error);
-               Alert.alert("Registration Failed", "Could not complete native Google Sign-In. Error code: " + error.code);
+               if (error.code === 'DEVELOPER_ERROR') {
+                    console.error("Native Google Signup DEVELOPER_ERROR:", error);
+                    Alert.alert("Configuration Issue", "DEVELOPER_ERROR: Please check if your SHA-1 key is registered correctly in Google Cloud Console.");
+               } else if (error.code !== 'SIGN_IN_CANCELLED') {
+                    console.error("Native Google Registration error:", error);
+                    Alert.alert("Registration Failed", `Error: ${error.message}`);
+               }
           } finally {
                setLoading(false);
           }
@@ -158,7 +164,7 @@ export default function SignUp() {
                     contentContainerStyle={styles.container}
                >
                     <View style={styles.card}>
-                         {/* Header */}
+                          {/* Header */}
                           <View style={styles.header}>
                                <View style={styles.avatarPreviewWrapper}>
                                     <Image 

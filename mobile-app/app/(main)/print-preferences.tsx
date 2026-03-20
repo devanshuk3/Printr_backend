@@ -61,9 +61,9 @@ const getUpiParam = (url: string, param: string) => {
 
 const PrintSettings = () => {
      const router = useRouter();
-     const { files, vendorId, vendorPhone, bwPrice, colorPrice, upiId, vendorName } = useLocalSearchParams<{ 
-          files: string, 
-          vendorId: string, 
+     const { files, vendorId, vendorPhone, bwPrice, colorPrice, upiId, vendorName } = useLocalSearchParams<{
+          files: string,
+          vendorId: string,
           vendorPhone: string,
           bwPrice: string,
           colorPrice: string,
@@ -176,52 +176,52 @@ const PrintSettings = () => {
           </View>
      );
 
-      const performUpload = async () => {
-           setIsUploading(true);
-           try {
-                const { token, user } = await getAuthData();
-                const username = user?.username || "unknown";
-                const orderId = Date.now().toString();
+     const performUpload = async () => {
+          setIsUploading(true);
+          try {
+               const { token, user } = await getAuthData();
+               const username = user?.username || "unknown";
+               const orderId = Date.now().toString();
 
-                // Step 1: Upload Original Files
-                const uploadResults = await Promise.all(uploadedFiles.map(async (file, index) => {
-                     // Naming pattern: username_orderid_originalfilename.ext
-                     const standardizedFileName = `${username}_${orderId}_${file.name}`;
+               // Step 1: Upload Original Files
+               const uploadResults = await Promise.all(uploadedFiles.map(async (file, index) => {
+                    // Naming pattern: username_orderid_originalfilename.ext
+                    const standardizedFileName = `${username}_${orderId}_${file.name}`;
 
-                     const urlResponse = await fetch(`${API_URL}/vendors/files/upload-url`, {
-                          method: 'POST',
-                          headers: { 
-                               'Content-Type': 'application/json',
-                               'x-auth-token': token || ''
-                          },
-                          body: JSON.stringify({
-                               vendorId: vendorId,
-                               fileName: standardizedFileName,
-                               contentType: file.mimeType || 'application/octet-stream'
-                          })
-                     });
+                    const urlResponse = await fetch(`${API_URL}/vendors/files/upload-url`, {
+                         method: 'POST',
+                         headers: {
+                              'Content-Type': 'application/json',
+                              'x-auth-token': token || ''
+                         },
+                         body: JSON.stringify({
+                              vendorId: vendorId,
+                              fileName: standardizedFileName,
+                              contentType: file.mimeType || 'application/octet-stream'
+                         })
+                    });
 
-                     if (!urlResponse.ok) {
-                          const errorData = await urlResponse.json();
-                          throw new Error(errorData.message || "Failed to get upload URL");
-                     }
+                    if (!urlResponse.ok) {
+                         const errorData = await urlResponse.json();
+                         throw new Error(errorData.message || "Failed to get upload URL");
+                    }
 
-                      const { uploadUrl, filePath } = await urlResponse.json();
-                      
-                      // Use Native FileSystem upload
-                      const uploadRes = await FileSystem.uploadAsync(uploadUrl, file.uri, {
-                           httpMethod: 'PUT',
-                           uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-                           headers: {
-                                'Content-Type': file.mimeType || 'application/octet-stream'
-                           }
-                      });
+                    const { uploadUrl, filePath } = await urlResponse.json();
 
-                      if (uploadRes.status < 200 || uploadRes.status >= 300) {
-                           throw new Error(`Cloud storage upload failed (${uploadRes.status})`);
-                      }
-                      return filePath;
-                }));
+                    // Use Native FileSystem upload
+                    const uploadRes = await FileSystem.uploadAsync(uploadUrl, file.uri, {
+                         httpMethod: 'PUT',
+                         uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+                         headers: {
+                              'Content-Type': file.mimeType || 'application/octet-stream'
+                         }
+                    });
+
+                    if (uploadRes.status < 200 || uploadRes.status >= 300) {
+                         throw new Error(`Cloud storage upload failed (${uploadRes.status})`);
+                    }
+                    return filePath;
+               }));
 
                // Step 2: Create and upload Print Preferences JSON
                try {
@@ -250,7 +250,7 @@ const PrintSettings = () => {
 
                     const urlResponseJson = await fetch(`${API_URL}/vendors/files/upload-url`, {
                          method: 'POST',
-                         headers: { 
+                         headers: {
                               'Content-Type': 'application/json',
                               'x-auth-token': token || ''
                          },
@@ -270,9 +270,9 @@ const PrintSettings = () => {
                                    'Content-Type': 'application/json'
                               }
                          });
-                         
+
                          if (jsonUploadRes.status < 200 || jsonUploadRes.status >= 300) {
-                             console.warn("JSON upload failed but continuing...", jsonUploadRes.status);
+                              console.warn("JSON upload failed but continuing...", jsonUploadRes.status);
                          }
                     }
                } catch (jsonErr) {
@@ -305,16 +305,16 @@ const PrintSettings = () => {
                const { token } = await getAuthData();
                const statsResponse = await fetch(`${API_URL}/vendors/increment-stats`, {
                     method: 'POST',
-                    headers: { 
-                          'Content-Type': 'application/json',
-                          'x-auth-token': token || ''
-                     },
-                     body: JSON.stringify({
-                          vendorId: vendorId,
-                          pages: totalPages * copies
-                     })
-                });
-                if (!statsResponse.ok) console.warn("Failed to update stats on server");
+                    headers: {
+                         'Content-Type': 'application/json',
+                         'x-auth-token': token || ''
+                    },
+                    body: JSON.stringify({
+                         vendorId: vendorId,
+                         pages: totalPages * copies
+                    })
+               });
+               if (!statsResponse.ok) console.warn("Failed to update stats on server");
           } catch (statsErr) {
                console.error("Stats update error:", statsErr);
           }
@@ -351,7 +351,7 @@ const PrintSettings = () => {
      const handleUPIPayment = async () => {
           const upi = vendorUPI?.upiId || upiId;
           const name = vendorUPI?.name || vendorName || "Merchant";
-          
+
           if (!upi) {
                Alert.alert("Error", "UPI ID not found for this vendor.");
                return;
@@ -388,7 +388,7 @@ const PrintSettings = () => {
           // Calculate final amount with random verification decimals
           const randomVerification = (Math.floor(Math.random() * 19) + 1) / 100;
           const finalAmount = (totalCost + randomVerification).toFixed(2);
-          
+
           setPendingAmount(finalAmount);
           setShowPaymentModal(true);
           fetchVendorDetails();
@@ -432,23 +432,23 @@ const PrintSettings = () => {
                          </Text>
                     </View>
                </View>
-               
+
                <View style={styles.totalPriceStick}>
                     <View>
-                        <Text style={styles.stickLabel}>Total Cost</Text>
-                        <Text style={styles.stickValue}>₹{totalCost.toFixed(2)}</Text>
+                         <Text style={styles.stickLabel}>Total Cost</Text>
+                         <Text style={styles.stickValue}>₹{totalCost.toFixed(2)}</Text>
                     </View>
-                     <TouchableOpacity
+                    <TouchableOpacity
                          style={[styles.stickBtn, isUploading && { opacity: 0.7 }]}
                          onPress={handleCheckout}
                          disabled={isUploading}
-                     >
+                    >
                          {isUploading ? (
                               <ActivityIndicator color="#ffffff" size="small" />
                          ) : (
                               <Text style={styles.stickBtnText}>PRINT NOW</Text>
                          )}
-                     </TouchableOpacity>
+                    </TouchableOpacity>
                </View>
 
                <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 100 }]}>
@@ -573,7 +573,7 @@ const PrintSettings = () => {
                               ))}
                          </View>
                     </View>
-                </ScrollView>
+               </ScrollView>
 
                <Modal
                     visible={showPaymentModal}
@@ -599,34 +599,34 @@ const PrintSettings = () => {
                                         />
                                    </View>
 
-                                    <Text style={styles.hintText}>Scan this QR using any UPI app (GPay, PhonePe, Paytm)</Text>
+                                   <Text style={styles.hintText}>Scan this QR using any UPI app (GPay, PhonePe, Paytm)</Text>
 
-                                    <View style={styles.upiDirectContainer}>
-                                         <Text style={styles.upiGridTitle}>Pay via UPI App</Text>
-                                         {isFetchingVendor ? (
-                                              <View style={styles.upiLoadingBox}>
-                                                   <ActivityIndicator color="#1271dd" size="small" />
-                                                   <Text style={styles.upiLoadingText}>Preparing payment...</Text>
-                                              </View>
-                                         ) : upiError ? (
-                                              <View style={styles.upiErrorBox}>
-                                                   <AlertCircle size={20} color="#ef4444" />
-                                                   <Text style={styles.upiErrorText}>{upiError}</Text>
-                                              </View>
-                                         ) : (
-                                               <TouchableOpacity 
-                                                   style={[
-                                                       styles.upiDirectBtn, 
+                                   <View style={styles.upiDirectContainer}>
+                                        <Text style={styles.upiGridTitle}>Pay via UPI App</Text>
+                                        {isFetchingVendor ? (
+                                             <View style={styles.upiLoadingBox}>
+                                                  <ActivityIndicator color="#1271dd" size="small" />
+                                                  <Text style={styles.upiLoadingText}>Preparing payment...</Text>
+                                             </View>
+                                        ) : upiError ? (
+                                             <View style={styles.upiErrorBox}>
+                                                  <AlertCircle size={20} color="#ef4444" />
+                                                  <Text style={styles.upiErrorText}>{upiError}</Text>
+                                             </View>
+                                        ) : (
+                                             <TouchableOpacity
+                                                  style={[
+                                                       styles.upiDirectBtn,
                                                        (parseFloat(pendingAmount) <= 0) && { opacity: 0.6 }
-                                                   ]}
-                                                   onPress={handleUPIPayment}
-                                                   disabled={parseFloat(pendingAmount) <= 0}
-                                              >
-                                                   <Smartphone size={20} color="#ffffff" />
-                                                   <Text style={styles.upiDirectBtnText}>Pay ₹{pendingAmount} via UPI</Text>
-                                              </TouchableOpacity>
-                                         )}
-                                    </View>
+                                                  ]}
+                                                  onPress={handleUPIPayment}
+                                                  disabled={parseFloat(pendingAmount) <= 0}
+                                             >
+                                                  <Smartphone size={20} color="#ffffff" />
+                                                  <Text style={styles.upiDirectBtnText}>Pay ₹{pendingAmount} via UPI</Text>
+                                             </TouchableOpacity>
+                                        )}
+                                   </View>
 
                                    <View style={styles.manualEntryBox}>
                                         <Text style={styles.manualLabel}>Or pay to UPI ID:</Text>
@@ -647,36 +647,36 @@ const PrintSettings = () => {
                                         </View>
                                    </View>
 
-                                    <View style={styles.verificationNote}>
-                                         <Text style={styles.verificationNoteText}>
-                                              * Printing will only be done when the payment is verified by the vendor
-                                         </Text>
-                                    </View>
+                                   <View style={styles.verificationNote}>
+                                        <Text style={styles.verificationNoteText}>
+                                             * Printing will only be done when the payment is verified by the vendor
+                                        </Text>
+                                   </View>
 
-                                    <TouchableOpacity 
-                                         style={[styles.confirmPaymentBtn, isUploading && { opacity: 0.7 }]}
-                                         disabled={isUploading}
-                                         onPress={async () => {
-                                              try {
-                                                   // 1. Upload to R2 first
-                                                   await performUpload();
-                                                   // 2. Complete the process
-                                                   setShowPaymentModal(false);
-                                                   await completePrintJob();
-                                                    handleSuccess();
-                                              } catch (err: any) {
-                                                   Alert.alert("Upload Failed", "Could not upload files to secure storage. Please check your connection.");
-                                              }
-                                         }}
-                                    >
-                                         {isUploading ? (
-                                              <ActivityIndicator color="#ffffff" size="small" />
-                                         ) : (
-                                              <Text style={styles.confirmPaymentText}>I HAVE PAID</Text>
-                                         )}
-                                    </TouchableOpacity>
-                                    
-                                    <Text style={styles.securityNote}>Your files will be securely stored and shared with the vendor after payment.</Text>
+                                   <TouchableOpacity
+                                        style={[styles.confirmPaymentBtn, isUploading && { opacity: 0.7 }]}
+                                        disabled={isUploading}
+                                        onPress={async () => {
+                                             try {
+                                                  // 1. Upload to R2 first
+                                                  await performUpload();
+                                                  // 2. Complete the process
+                                                  setShowPaymentModal(false);
+                                                  await completePrintJob();
+                                                  handleSuccess();
+                                             } catch (err: any) {
+                                                  Alert.alert("Upload Failed", "Could not upload files to secure storage. Please check your connection.");
+                                             }
+                                        }}
+                                   >
+                                        {isUploading ? (
+                                             <ActivityIndicator color="#ffffff" size="small" />
+                                        ) : (
+                                             <Text style={styles.confirmPaymentText}>I HAVE PAID</Text>
+                                        )}
+                                   </TouchableOpacity>
+
+                                   <Text style={styles.securityNote}>Your files will be securely stored and shared with the vendor after payment.</Text>
                               </ScrollView>
                          </View>
                     </View>
@@ -696,13 +696,13 @@ const PrintSettings = () => {
                               ]}>
                                    <Check size={48} color="#ffffff" strokeWidth={4} />
                               </Animated.View>
-                              
+
                               <Text style={styles.successTitle}>Files Uploaded!</Text>
                               <Text style={styles.successSubtitle}>
                                    Your print job has been securely sent to the cloud. The vendor will process it once they verify the payment.
                               </Text>
-                              
-                              <TouchableOpacity 
+
+                              <TouchableOpacity
                                    style={styles.successCloseBtn}
                                    onPress={() => {
                                         setShowSuccessModal(false);

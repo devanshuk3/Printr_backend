@@ -26,14 +26,6 @@ import { Check } from "lucide-react-native";
 const LoginPage = () => {
   const router = useRouter();
 
-  useEffect(() => {
-    GoogleSignin.configure({
-      webClientId: GOOGLE_CLIENT_ID,
-      offlineAccess: true,
-      forceCodeForRefreshToken: true,
-    });
-  }, []);
-
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
@@ -42,11 +34,14 @@ const LoginPage = () => {
   const promptAsync = async () => {
     try {
       setLoading(true);
+      
+      // Ensure play services are available
       await GoogleSignin.hasPlayServices();
-      try {
-        await GoogleSignin.signOut();
-      } catch (e) {
-      }
+      
+      // A small delay helps avoid 'Current activity is null' errors in some React Native versions
+      // by ensuring the activity is correctly attached after any component state changes.
+      await new Promise(resolve => setTimeout(resolve, 300));
+
       const userInfo = await GoogleSignin.signIn();
       if (userInfo.data?.idToken) {
         handleGoogleLogin(userInfo.data.idToken);
@@ -54,8 +49,13 @@ const LoginPage = () => {
         throw new Error("No ID Token found. Please check your Google Cloud Console configuration.");
       }
     } catch (error: any) {
-      console.error("Native Google Login error:", error);
-      Alert.alert("Login Failed", "Could not complete native Google Sign-In. Error code: " + error.code);
+      if (error.code === 'DEVELOPER_ERROR') {
+        console.error("Native Google Login DEVELOPER_ERROR:", error);
+        Alert.alert("Configuration Issue", "DEVELOPER_ERROR: Please check if your SHA-1 key is registered correctly in Google Cloud Console.");
+      } else if (error.code !== 'SIGN_IN_CANCELLED') {
+        console.error("Native Google Login error:", error);
+        Alert.alert("Login Failed", `Error: ${error.message}`);
+      }
     } finally {
       setLoading(false);
     }
