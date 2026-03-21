@@ -237,12 +237,14 @@ router.post('/files/upload-url', [
       [filePath, sanitizedVendorId, req.user.id, finalFileName, 'uploaded', deleteAfter]
     );
 
-    // 5. Send to Print Queue
-    await db.supabaseQuery(
-      `INSERT INTO print_queue (order_id, order_number, vendor_id, user_id, username, file_name, file_type, object_key, total_pages, total_amount, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [orderId, orderId.toString(), sanitizedVendorId, req.user.id, username, finalFileName, extension, filePath, totalPages || null, totalAmount || null, 'queued']
-    );
+    // 5. Send to Print Queue (Only add actual print jobs, not preference JSONs)
+    if (contentType !== 'application/json') {
+        await db.supabaseQuery(
+          `INSERT INTO print_queue (order_id, order_number, vendor_id, user_id, username, file_name, file_type, object_key, total_pages, total_amount, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          [orderId, orderId.toString(), sanitizedVendorId, req.user.id, username, finalFileName, extension, filePath, totalPages || null, totalAmount || null, 'queued']
+        );
+    }
 
     const command = new PutObjectCommand({
       Bucket: bucketName,
