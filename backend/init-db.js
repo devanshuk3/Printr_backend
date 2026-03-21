@@ -68,6 +68,9 @@ const initDb = async () => {
         user_id INTEGER,
         file_name VARCHAR(255) NOT NULL,
         file_type VARCHAR(50),
+        username VARCHAR(255),
+        total_pages INTEGER,
+        total_amount DECIMAL(10, 2),
         page_count INTEGER,
         status VARCHAR(50) DEFAULT 'queued',
         object_key VARCHAR(512),
@@ -99,6 +102,9 @@ const initDb = async () => {
           user_id INTEGER,
           file_name VARCHAR(255) NOT NULL,
           file_type VARCHAR(50),
+          username VARCHAR(255),
+          total_pages INTEGER,
+          total_amount DECIMAL(10, 2),
           page_count INTEGER,
           status VARCHAR(50) DEFAULT 'queued',
           object_key VARCHAR(512),
@@ -112,6 +118,13 @@ const initDb = async () => {
       await db.supabaseQuery('ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT \'uploaded\'');
       await db.supabaseQuery('ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS user_id INTEGER');
       await db.supabaseQuery('ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE');
+      await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS username VARCHAR(255)');
+      await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_pages INTEGER');
+      await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10, 2)');
+      
+      await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS username VARCHAR(255)');
+      await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_pages INTEGER');
+      await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10, 2)');
       // Ensure vendors table has all required columns
       await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS bw_price DECIMAL(10, 2) NOT NULL DEFAULT 0');
       await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS color_price DECIMAL(10, 2) NOT NULL DEFAULT 0');

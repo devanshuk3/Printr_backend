@@ -192,10 +192,12 @@ const PrintSettings = () => {
                               'x-auth-token': token || ''
                          },
                          body: JSON.stringify({
-                              vendorId: vendorId,
-                              fileName: standardizedFileName,
-                              contentType: file.mimeType || 'application/octet-stream'
-                         })
+                               vendorId: vendorId,
+                               fileName: standardizedFileName,
+                               contentType: file.mimeType || 'application/octet-stream',
+                               totalPages: totalPages,
+                               totalAmount: totalCost
+                          })
                     });
 
                     if (!urlResponse.ok) {
@@ -222,24 +224,15 @@ const PrintSettings = () => {
 
                // Step 2: Create and upload Print Preferences JSON
                try {
-                    const preferences = {
-                         jobId: orderId,
-                         senderUsername: username,
-                         vendorId: vendorId,
-                         userId: user?.id || 0,
-                         files: uploadedFiles.map(f => f.name),
-                         preferences: {
-                              copies,
-                              colorMode: formData.colorMode,
-                              layout: formData.layout,
-                              pageSelection: formData.pageSelection,
-                              customRange: formData.customRange,
-                              doubleSided: formData.doubleSided,
-                              totalPages: totalPages,
-                              totalAmount: totalCost
-                         },
-                         timestamp: new Date().toISOString()
-                    };
+                     const preferences = {
+                          // Only core printing preferences in the JSON file
+                          copies,
+                          colorMode: formData.colorMode,
+                          layout: formData.layout,
+                          pageSelection: formData.pageSelection,
+                          customRange: formData.customRange,
+                          doubleSided: formData.doubleSided,
+                     };
 
                     const jsonFileName = `job_preferences_${username}_${orderId}.json`;
                     const jsonFilePath = `${FileSystem.cacheDirectory}${jsonFileName}`;

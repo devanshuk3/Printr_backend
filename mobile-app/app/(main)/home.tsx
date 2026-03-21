@@ -230,7 +230,8 @@ export default function HomePage() {
         }
         // Default total pages to Number of files if not already set
         if (totalPages === 0) setTotalPages(uploadedFiles.length || 1);
-        Alert.alert("Success", `Vendor: ${data.name} verified!`);
+        // Success alert removed to keep the design clean as per request
+        // Alert.alert("Success", `Vendor: ${data.name} verified!`);
       } else {
         setVerifiedVendor(null);
         Alert.alert("Error", data.message || "Vendor not found");

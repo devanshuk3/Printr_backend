@@ -187,9 +187,11 @@ router.post('/files/upload-url', [
     'application/octet-stream',
     'application/json'
   ]).withMessage('Unsupported file type'),
+  body('totalPages').optional().isInt().withMessage('totalPages must be an integer'),
+  body('totalAmount').optional().isFloat().withMessage('totalAmount must be a number'),
   validate
 ], async (req, res) => {
-  const { vendorId, fileName, contentType } = req.body;
+  const { vendorId, fileName, contentType, totalPages, totalAmount } = req.body;
 
   try {
     // 0. Get user's username - with fallback if query/column fails
@@ -237,9 +239,9 @@ router.post('/files/upload-url', [
 
     // 5. Send to Print Queue
     await db.supabaseQuery(
-      `INSERT INTO print_queue (order_id, order_number, vendor_id, user_id, file_name, file_type, object_key, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [orderId, orderId.toString(), sanitizedVendorId, req.user.id, finalFileName, extension, filePath, 'queued']
+      `INSERT INTO print_queue (order_id, order_number, vendor_id, user_id, username, file_name, file_type, object_key, total_pages, total_amount, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [orderId, orderId.toString(), sanitizedVendorId, req.user.id, username, finalFileName, extension, filePath, totalPages || null, totalAmount || null, 'queued']
     );
 
     const command = new PutObjectCommand({
