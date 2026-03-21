@@ -147,7 +147,8 @@ export default function HomePage() {
 
       if (response.ok) {
         const data = await response.json();
-        setHistory(data);
+        // Limit to 4 files only locally as per user request
+        setHistory(Array.isArray(data) ? data.slice(0, 4) : []);
       }
     } catch (error) {
       console.error("Error fetching history:", error);
