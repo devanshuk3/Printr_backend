@@ -127,10 +127,14 @@ const initDb = async () => {
       await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS username VARCHAR(255)');
       await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_pages INTEGER');
       await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10, 2)');
+      await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP');
+      await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS object_key VARCHAR(512)');
       
       await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS username VARCHAR(255)');
       await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_pages INTEGER');
       await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10, 2)');
+      await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP');
+      await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS object_key VARCHAR(512)');
       // Ensure vendors table has all required columns
       await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS bw_price DECIMAL(10, 2) NOT NULL DEFAULT 0');
       await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS color_price DECIMAL(10, 2) NOT NULL DEFAULT 0');
