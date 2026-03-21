@@ -23,10 +23,10 @@ const migrate = async () => {
     );`,
     
     // 3. Apply Column Migrations (in case tables existed previously)
+    `ALTER TABLE print_queue RENAME COLUMN order_number TO order_id;`,
+    `ALTER TABLE print_queue ALTER COLUMN order_id SET NOT NULL;`,
     `ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS object_key VARCHAR(512);`,
-    `ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE;`,
-    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS vendor_id VARCHAR(50);`,
-    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS file_name VARCHAR(255);`
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE;`
   ];
 
   console.log('--- STARTING MIGRATIONS ---');
