@@ -192,10 +192,16 @@ router.post('/files/upload-url', [
   const { vendorId, fileName, contentType } = req.body;
 
   try {
-    // 0. Get user's username
-    const userRes = await db.supabaseQuery('SELECT username FROM users WHERE id = $1', [req.user.id]);
-    if (userRes.rows.length === 0) throw new Error("User details not found");
-    const username = userRes.rows[0].username || `user${req.user.id}`;
+    // 0. Get user's username - with fallback if query/column fails
+    let username = `user${req.user.id}`;
+    try {
+      const userRes = await db.supabaseQuery('SELECT username FROM users WHERE id = $1', [req.user.id]);
+      if (userRes.rows.length > 0 && userRes.rows[0].username) {
+        username = userRes.rows[0].username;
+      }
+    } catch (e) {
+      console.warn("Could not fetch username (likely column missing), using fallback:", e.message);
+    }
 
     // 1. Create a placeholder in Orders table to get a unique order ID
     const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
@@ -246,7 +252,10 @@ router.post('/files/upload-url', [
     res.json({ uploadUrl, filePath, bucket: bucketName, orderId, finalFileName });
   } catch (err) {
     console.error("R2 Upload URL Error Detail:", err);
-    handleError(res, err, "Generating upload URL failed");
+    // Explicitly returning the actual error message to the frontend for diagnostics
+    res.status(500).json({ 
+      message: `Generating upload URL failed: ${err.message}` 
+    });
   }
 });
 

@@ -97,10 +97,9 @@ const initDb = async () => {
       `;
       await db.supabaseQuery(supaPrintQueueQuery);
       
-      // Migrations for Supabase
       await db.supabaseQuery('ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT \'uploaded\'');
       await db.supabaseQuery('ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS user_id INTEGER');
-      +
+      await db.supabaseQuery('ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE');
       // Ensure vendors table has all required columns
       await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS bw_price DECIMAL(10, 2) NOT NULL DEFAULT 0');
       await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS color_price DECIMAL(10, 2) NOT NULL DEFAULT 0');
