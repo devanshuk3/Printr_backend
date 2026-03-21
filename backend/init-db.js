@@ -116,30 +116,32 @@ const initDb = async () => {
           completed_at TIMESTAMP
         );
       `;
-      await db.supabaseQuery(supaPrintQueueQuery);
+      // Migration: Ensure essential tables exist before anything else
+      try { await db.supabaseQuery(createVendorTableQuery); } catch (e) {}
+      try { await db.supabaseQuery(createUploadsTableQuery); } catch (e) {}
+      try { await db.supabaseQuery(createOrdersTableQuery); } catch (e) {}
+      try { await db.supabaseQuery(supaPrintQueueQuery); } catch (e) {}
+
+      // DROP constraint if it exists
       try {
         await db.supabaseQuery('ALTER TABLE print_queue DROP CONSTRAINT IF EXISTS print_queue_user_id_fkey');
-      } catch (e) { /* ignore if constraint doesn't exist */ }
+      } catch (e) {}
       
-      await db.supabaseQuery('ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT \'uploaded\'');
-      await db.supabaseQuery('ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS user_id INTEGER');
-      await db.supabaseQuery('ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE');
-      await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS username VARCHAR(255)');
-      await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_pages INTEGER');
-      await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10, 2)');
-      await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP');
-      await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS object_key VARCHAR(512)');
+      // Dynamic Migrations for optional columns
+      try { await db.supabaseQuery('ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT \'uploaded\''); } catch (e) {}
+      try { await db.supabaseQuery('ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS user_id INTEGER'); } catch (e) {}
+      try { await db.supabaseQuery('ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE'); } catch (e) {}
+      try { await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS username VARCHAR(255)'); } catch (e) {}
+      try { await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_pages INTEGER'); } catch (e) {}
+      try { await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10, 2)'); } catch (e) {}
+      try { await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP'); } catch (e) {}
+      try { await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS object_key VARCHAR(512)'); } catch (e) {}
       
-      await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS username VARCHAR(255)');
-      await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_pages INTEGER');
-      await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10, 2)');
-      await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP');
-      await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS object_key VARCHAR(512)');
-      // Final safety check for all Supabase tables
-      await db.supabaseQuery(createVendorTableQuery);
-      await db.supabaseQuery(createUploadsTableQuery);
-      await db.supabaseQuery(createOrdersTableQuery);
-      await db.supabaseQuery(supaPrintQueueQuery);
+      try { await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS username VARCHAR(255)'); } catch (e) {}
+      try { await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_pages INTEGER'); } catch (e) {}
+      try { await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10, 2)'); } catch (e) {}
+      try { await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP'); } catch (e) {}
+      try { await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS object_key VARCHAR(512)'); } catch (e) {}
 
       // Ensure vendors table has all required columns
       try { await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS bw_price DECIMAL(10, 2) NOT NULL DEFAULT 0'); } catch (e) {}
