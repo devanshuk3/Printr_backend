@@ -205,24 +205,32 @@ router.post('/files/upload-url', [
       console.warn("Could not fetch username (likely column missing), using fallback:", e.message);
     }
 
-    // 1. Create a placeholder in Orders table to get a unique order ID
+    // 1. Create a placeholder in Orders table to get a unique order ID (SKIP FOR JSON PREFERENCES)
     const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
-    const orderRes = await db.supabaseQuery(
-      'INSERT INTO orders (user_id, vendor_id, status) VALUES ($1, $2, $3) RETURNING id',
-      [req.user.id, sanitizedVendorId, 'pending']
-    );
-    const orderId = orderRes.rows[0].id;
+    let orderId = null;
+    if (contentType !== 'application/json') {
+        const orderRes = await db.supabaseQuery(
+          'INSERT INTO orders (user_id, vendor_id, status) VALUES ($1, $2, $3) RETURNING id',
+          [req.user.id, sanitizedVendorId, 'pending']
+        );
+        orderId = orderRes.rows[0].id;
+    } else {
+        // For JSON preferences, we generate a random temporary numeric ID if one isn't provided
+        orderId = Date.now().toString().slice(-8); 
+    }
 
     // 2. Generate the filename as username + unique_order_id
     const extension = fileName.split('.').pop()?.toLowerCase() || 'unknown';
     const finalFileName = `${username}${orderId}.${extension}`;
     const filePath = `${sanitizedVendorId}/${finalFileName}`;
 
-    // 3. Update the order with the final file name
-    await db.supabaseQuery(
-      'UPDATE orders SET file_name = $1 WHERE id = $2',
-      [finalFileName, orderId]
-    );
+    // 3. Update the order with the final file name (SKIP FOR JSON)
+    if (contentType !== 'application/json') {
+        await db.supabaseQuery(
+          'UPDATE orders SET file_name = $1 WHERE id = $2',
+          [finalFileName, orderId]
+        );
+    }
 
     const bucketName = process.env.R2_BUCKET_NAME ? process.env.R2_BUCKET_NAME.trim() : '';
     if (!bucketName) {
@@ -237,14 +245,7 @@ router.post('/files/upload-url', [
       [filePath, sanitizedVendorId, req.user.id, finalFileName, 'uploaded', deleteAfter]
     );
 
-    // 5. Send to Print Queue (Only add actual print jobs, not preference JSONs)
-    if (contentType !== 'application/json') {
-        await db.supabaseQuery(
-          `INSERT INTO print_queue (order_id, order_number, vendor_id, user_id, username, file_name, file_type, object_key, total_pages, total_amount, status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-          [orderId, orderId.toString(), sanitizedVendorId, req.user.id, username, finalFileName, extension, filePath, totalPages || null, totalAmount || null, 'queued']
-        );
-    }
+    // 5. Removed Print Queue usage as per user request
 
     const command = new PutObjectCommand({
       Bucket: bucketName,
@@ -270,7 +271,7 @@ router.get('/files/history', auth, async (req, res) => {
       `SELECT f.file_name, f.uploaded_at, f.status, f.deleted_at, v.shop_name
        FROM uploaded_files f
        LEFT JOIN vendors v ON LOWER(f.vendor_id) = LOWER(v.vendor_id)
-       WHERE f.user_id = $1
+       WHERE f.user_id = $1 AND f.file_name NOT LIKE '%.json'
        ORDER BY f.uploaded_at DESC
        LIMIT 50`,
       [req.user.id]
@@ -314,23 +315,17 @@ router.post('/printed', [
   const { orderId } = req.body;
 
   try {
-    // 1. Update the print_queue table
+    // 1. Update the orders table status
     const result = await db.supabaseQuery(
-      'UPDATE print_queue SET status = $1, completed_at = NOW() WHERE order_id = $2 RETURNING *',
-      ['printed', orderId]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Order not found in print queue" });
-    }
-
-    // 2. Also update the orders table status
-    await db.supabaseQuery(
-      'UPDATE orders SET status = $1 WHERE id = $2',
+      'UPDATE orders SET status = $1 WHERE id = $2 RETURNING *',
       ['completed', orderId]
     );
 
-    // 3. Update uploaded_files status
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    // 2. Update uploaded_files status
     await db.supabaseQuery(
       'UPDATE uploaded_files SET status = $1 WHERE file_name = (SELECT file_name FROM orders WHERE id = $2)',
       ['printed', orderId]

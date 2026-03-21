@@ -52,24 +52,6 @@ const ensureTables = async () => {
       status VARCHAR(50) DEFAULT 'pending',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
-    `CREATE TABLE IF NOT EXISTS print_queue (
-      id SERIAL PRIMARY KEY,
-      order_id INTEGER NOT NULL,
-      order_number VARCHAR(50) NOT NULL,
-      vendor_id VARCHAR(50) NOT NULL,
-      user_id INTEGER,
-      file_name VARCHAR(255) NOT NULL,
-      file_type VARCHAR(50),
-      username VARCHAR(255),
-      total_pages INTEGER,
-      total_amount DECIMAL(10, 2),
-      page_count INTEGER,
-      status VARCHAR(50) DEFAULT 'queued',
-      object_key VARCHAR(512),
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      completed_at TIMESTAMP
-    )`
   ];
 
   for (const sql of queries) {
@@ -78,11 +60,7 @@ const ensureTables = async () => {
     }
   }
 
-  // Drop problematic FK constraints that cause cross-table issues
-  const drops = [
-    'ALTER TABLE print_queue DROP CONSTRAINT IF EXISTS print_queue_user_id_fkey',
-    'ALTER TABLE print_queue DROP CONSTRAINT IF EXISTS print_queue_order_id_fkey'
-  ];
+  const drops = [];
   for (const sql of drops) {
     try { await db.query(sql); } catch (e) {}
   }

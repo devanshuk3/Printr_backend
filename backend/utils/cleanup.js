@@ -93,12 +93,13 @@ const manualDeleteFile = async (objectKey) => {
  * Delete records from orders and print_queue after 1 hour of completion.
  */
 const cleanupCompletedJobs = async () => {
-  console.log('[Cleanup] Checking for jobs completed >1 hour ago...');
+  console.log('[Cleanup] Checking for completed jobs for cleanup...');
   try {
-    // 1. Get object keys for files that should be deleted
+    // 1. Get object keys for files that should be deleted based on uploaded_files or orders status
     const result = await db.supabaseQuery(`
-      SELECT object_key, order_id FROM print_queue 
-      WHERE completed_at <= NOW() - INTERVAL '1 hour'
+      SELECT object_key, file_name FROM uploaded_files 
+      WHERE status = 'printed' AND uploaded_at <= NOW() - INTERVAL '1 hour'
+      AND deleted_at IS NULL
     `);
     
     if (result.rows.length === 0) {
@@ -106,7 +107,6 @@ const cleanupCompletedJobs = async () => {
     }
 
     const bucketName = process.env.R2_BUCKET_NAME;
-    const ordersToDelete = result.rows.map(r => r.order_id);
     const keysToDelete = result.rows.map(r => ({ Key: r.object_key }));
 
     // 2. Delete from R2
@@ -118,16 +118,18 @@ const cleanupCompletedJobs = async () => {
         }));
         console.log(`[Cleanup] Deleted ${keysToDelete.length} files from R2 for completed jobs.`);
       } catch (r2Err) {
-        console.warn(`[Cleanup] R2 deletion failed for some completed jobs, but proceeding with DB cleanup.`);
+        console.warn(`[Cleanup] R2 deletion failed for some completed jobs.`);
       }
     }
 
-    // 3. Delete from DB Tables
-    await db.supabaseQuery('DELETE FROM print_queue WHERE order_id = ANY($1)', [ordersToDelete]);
-    await db.supabaseQuery('DELETE FROM orders WHERE id = ANY($1)', [ordersToDelete]);
-    await db.supabaseQuery('UPDATE uploaded_files SET deleted_at = NOW() WHERE object_key = ANY($1)', [result.rows.map(r => r.object_key)]);
+    // 3. Mark as deleted in DB
+    const keys = result.rows.map(r => r.object_key);
+    await db.supabaseQuery('UPDATE uploaded_files SET deleted_at = NOW() WHERE object_key = ANY($1)', [keys]);
 
-    console.log(`[Cleanup] Database records for ${ordersToDelete.length} completed jobs removed.`);
+    // 4. Optionally delete the order records if they are old
+    await db.supabaseQuery(`DELETE FROM orders WHERE file_name = ANY($1) AND created_at <= NOW() - INTERVAL '24 hours'`, [result.rows.map(r => r.file_name)]);
+
+    console.log(`[Cleanup] Database records for ${keys.length} completed jobs updated.`);
   } catch (error) {
     console.error('[Cleanup] Error in cleanupCompletedJobs:', error.message);
   }
