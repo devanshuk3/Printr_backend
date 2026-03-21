@@ -18,7 +18,8 @@ const migrate = async () => {
       status VARCHAR(50) DEFAULT 'queued',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       completed_at TIMESTAMP
-    );`
+    );`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE;`
   ];
 
   for (const query of queries) {

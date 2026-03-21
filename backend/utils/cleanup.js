@@ -96,10 +96,10 @@ const cleanupCompletedJobs = async () => {
   console.log('[Cleanup] Checking for jobs completed >1 hour ago...');
   try {
     // 1. Get object keys for files that should be deleted
-    const result = await db.supabaseQuery(`s
+    const result = await db.supabaseQuery(`
       SELECT object_key, order_id FROM print_queue 
       WHERE completed_at <= NOW() - INTERVAL '1 hour'
-    `);+
+    `);
     
     if (result.rows.length === 0) {
       return;
