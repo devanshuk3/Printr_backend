@@ -53,119 +53,72 @@ const initDb = async () => {
   `;
 
   try {
-    console.log('--- Initializing Primary DB (Render Auth/Users) ---');
-    await db.query(createUserTableQuery);
-    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE');
-    await db.query(createUploadsTableQuery);
-    await db.query(createOrdersTableQuery);
+    console.log('--- STARTING CONSOLIDATED DATABASE INITIALIZATION ---');
     
-    const createPrintQueueTableQuery = `
-      CREATE TABLE IF NOT EXISTS print_queue (
-        id SERIAL PRIMARY KEY,
-        order_id INTEGER NOT NULL REFERENCES orders(id),
-        order_number VARCHAR(50) NOT NULL,
-        vendor_id VARCHAR(50) NOT NULL,
-        user_id INTEGER,
-        file_name VARCHAR(255) NOT NULL,
-        file_type VARCHAR(50),
-        username VARCHAR(255),
-        total_pages INTEGER,
-        total_amount DECIMAL(10, 2),
-        page_count INTEGER,
-        status VARCHAR(50) DEFAULT 'queued',
-        object_key VARCHAR(512),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        completed_at TIMESTAMP
-      );
-    `;
-      await db.query(createPrintQueueTableQuery);
-      try {
-        await db.query('ALTER TABLE print_queue DROP CONSTRAINT IF EXISTS print_queue_user_id_fkey');
-      } catch (e) { /* ignore if constraint doesn't exist */ }
-    
-    // Migrations for existing table
-    await db.query('ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT \'uploaded\'');
-    await db.query('ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS user_id INTEGER');
-    
-    console.log('Primary DB ready.');
+    // Ensure search path is consistent
+    try { await db.query('SET search_path TO public, auth, "$user";'); } catch (e) {}
 
-    console.log('--- Initializing Supabase DB (Vendors) ---');
-    try {
-      await db.supabaseQuery(createVendorTableQuery);
-      await db.supabaseQuery(createUploadsTableQuery);
-      await db.supabaseQuery(createOrdersTableQuery);
-      
-      const supaPrintQueueQuery = `
-        CREATE TABLE IF NOT EXISTS print_queue (
-          id SERIAL PRIMARY KEY,
-          order_id INTEGER NOT NULL REFERENCES orders(id),
-          order_number VARCHAR(50) NOT NULL,
-          vendor_id VARCHAR(50) NOT NULL,
-          user_id INTEGER,
-          file_name VARCHAR(255) NOT NULL,
-          file_type VARCHAR(50),
-          username VARCHAR(255),
-          total_pages INTEGER,
-          total_amount DECIMAL(10, 2),
-          page_count INTEGER,
-          status VARCHAR(50) DEFAULT 'queued',
-          object_key VARCHAR(512),
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          completed_at TIMESTAMP
-        );
-      `;
-      // Migration: Ensure essential tables exist before anything else
-      try { await db.supabaseQuery(createVendorTableQuery); } catch (e) {}
-      try { await db.supabaseQuery(createUploadsTableQuery); } catch (e) {}
-      try { await db.supabaseQuery(createOrdersTableQuery); } catch (e) {}
-      try { await db.supabaseQuery(supaPrintQueueQuery); } catch (e) {}
+    // 1. Define all creation queries in an array for sequential execution
+    const tables = [
+      { name: 'users', query: createUserTableQuery },
+      { name: 'vendors', query: createVendorTableQuery },
+      { name: 'uploaded_files', query: createUploadsTableQuery },
+      { name: 'orders', query: createOrdersTableQuery },
+      { name: 'print_queue', query: createPrintQueueTableQuery }
+    ];
 
-      // DROP constraint if it exists
+    for (const table of tables) {
       try {
-        await db.supabaseQuery('ALTER TABLE print_queue DROP CONSTRAINT IF EXISTS print_queue_user_id_fkey');
-      } catch (e) {}
-      
-      // Dynamic Migrations for optional columns
-      try { await db.supabaseQuery('ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT \'uploaded\''); } catch (e) {}
-      try { await db.supabaseQuery('ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS user_id INTEGER'); } catch (e) {}
-      try { await db.supabaseQuery('ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE'); } catch (e) {}
-      try { await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS username VARCHAR(255)'); } catch (e) {}
-      try { await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_pages INTEGER'); } catch (e) {}
-      try { await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10, 2)'); } catch (e) {}
-      try { await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP'); } catch (e) {}
-      try { await db.supabaseQuery('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS object_key VARCHAR(512)'); } catch (e) {}
-      
-      try { await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS username VARCHAR(255)'); } catch (e) {}
-      try { await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_pages INTEGER'); } catch (e) {}
-      try { await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10, 2)'); } catch (e) {}
-      try { await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP'); } catch (e) {}
-      try { await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS object_key VARCHAR(512)'); } catch (e) {}
-
-      // Ensure vendors table has all required columns
-      try { await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS bw_price DECIMAL(10, 2) NOT NULL DEFAULT 0'); } catch (e) {}
-      try { await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS color_price DECIMAL(10, 2) NOT NULL DEFAULT 0'); } catch (e) {}
-      try { await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS shop_name VARCHAR(255)'); } catch (e) {}
-      try { await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS phone VARCHAR(20)'); } catch (e) {}
-      try { await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS upi_id VARCHAR(255)'); } catch (e) {}
-      try { await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS pages_printed INTEGER DEFAULT 0'); } catch (e) {}
-      try { await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS platform_fee DECIMAL(10, 2) DEFAULT 0.00'); } catch (e) {}
-      
-      // Migration: Copy from 'name' to 'shop_name' if necessary
-      try {
-        await db.supabaseQuery("UPDATE vendors SET shop_name = name WHERE shop_name IS NULL");
-      } catch (e) { /* ignore if name doesn't exist */ }
-      
-      console.log('Supabase DB ready.');
-    } catch (supaErr) {
-      console.error('Note: Supabase init had issues (might be permission related or table structure), skipping:', supaErr.message);
+        console.log(`[Init] Ensuring table exists: ${table.name}`);
+        await db.query(table.query);
+        // If they use Supabase pool, we also hit the same db with supabaseQuery just in case they are different
+        if (db.query !== db.supabaseQuery) {
+            await db.supabaseQuery(table.query);
+        }
+      } catch (err) {
+        console.warn(`[Init] Warning/Check failed for ${table.name}:`, err.message);
+      }
     }
 
-    console.log('Database initialization complete.');
+    // 2. Perform all ALTER TABLE migrations individually
+    const migrations = [
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE',
+      'ALTER TABLE print_queue DROP CONSTRAINT IF EXISTS print_queue_user_id_fkey',
+      'ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT \'uploaded\'',
+      'ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS user_id INTEGER',
+      'ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS username VARCHAR(255)',
+      'ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_pages INTEGER',
+      'ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10, 2)',
+      'ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP',
+      'ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS object_key VARCHAR(512)',
+      'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS bw_price DECIMAL(10, 2) NOT NULL DEFAULT 0',
+      'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS color_price DECIMAL(10, 2) NOT NULL DEFAULT 0',
+      'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS shop_name VARCHAR(255)',
+      'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS phone VARCHAR(20)',
+      'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS upi_id VARCHAR(255)',
+      'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS pages_printed INTEGER DEFAULT 0',
+      'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS platform_fee DECIMAL(10, 2) DEFAULT 0.00'
+    ];
+
+    for (const sql of migrations) {
+      try {
+        await db.query(sql);
+        if (db.query !== db.supabaseQuery) {
+            await db.supabaseQuery(sql);
+        }
+      } catch (err) {
+        // Silent ignore for IF NOT EXISTS cases or irrelevant tables
+      }
+    }
+
+    // 3. Special Migrations
+    try { await db.supabaseQuery("UPDATE vendors SET shop_name = name WHERE shop_name IS NULL"); } catch(e) {}
+    try { await db.query("UPDATE vendors SET shop_name = name WHERE shop_name IS NULL"); } catch(e) {}
+
+    console.log('--- DATABASE INITIALIZATION COMPLETE ---');
     process.exit(0);
   } catch (err) {
-    console.error('Fatal Error during initialization:');
+    console.error('--- FATAL ERROR DURING INITIALIZATION ---');
     console.error(err.message);
     process.exit(1);
   }
