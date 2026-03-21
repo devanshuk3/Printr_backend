@@ -8,6 +8,7 @@ const initDb = async () => {
       email VARCHAR(255) UNIQUE NOT NULL,
       username VARCHAR(255) UNIQUE NOT NULL,
       password VARCHAR(255) NOT NULL,
+      role VARCHAR(50) DEFAULT 'user',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `;
@@ -92,7 +93,7 @@ const initDb = async () => {
       try {
         console.log(`[Init] Ensuring table exists: ${table.name}`);
         await db.query(table.query);
-        // If they use Supabase pool, we also hit the same db with supabaseQuery just in case they are different
+        // Also run on Supabase (if primary pool is different)
         if (db.query !== db.supabaseQuery) {
             await db.supabaseQuery(table.query);
         }
@@ -101,11 +102,10 @@ const initDb = async () => {
       }
     }
 
-    // 2. Perform all ALTER TABLE migrations individually
+    // 2. Perform ALTER TABLE migrations for existing production databases
     const migrations = [
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE',
-      'ALTER TABLE print_queue DROP CONSTRAINT IF EXISTS print_queue_user_id_fkey',
-      'ALTER TABLE print_queue DROP CONSTRAINT IF EXISTS print_queue_order_id_fkey',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT \'user\'',
       'ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT \'uploaded\'',
       'ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS user_id INTEGER',
       'ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS username VARCHAR(255)',
@@ -113,13 +113,15 @@ const initDb = async () => {
       'ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10, 2)',
       'ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP',
       'ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS object_key VARCHAR(512)',
+      'ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS file_type VARCHAR(50)',
       'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS bw_price DECIMAL(10, 2) NOT NULL DEFAULT 0',
       'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS color_price DECIMAL(10, 2) NOT NULL DEFAULT 0',
-      'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS shop_name VARCHAR(255)',
       'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS phone VARCHAR(20)',
       'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS upi_id VARCHAR(255)',
       'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS pages_printed INTEGER DEFAULT 0',
-      'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS platform_fee DECIMAL(10, 2) DEFAULT 0.00'
+      'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS platform_fee DECIMAL(10, 2) DEFAULT 0.00',
+      'ALTER TABLE print_queue DROP CONSTRAINT IF EXISTS print_queue_user_id_fkey',
+      'ALTER TABLE print_queue DROP CONSTRAINT IF EXISTS print_queue_order_id_fkey'
     ];
 
     for (const sql of migrations) {
@@ -129,13 +131,17 @@ const initDb = async () => {
             await db.supabaseQuery(sql);
         }
       } catch (err) {
-        // Silent ignore for IF NOT EXISTS cases or irrelevant tables
+        // Silent ignore for IF NOT EXISTS cases
       }
     }
 
-    // 3. Special Migrations
-    try { await db.supabaseQuery("UPDATE vendors SET shop_name = name WHERE shop_name IS NULL"); } catch(e) {}
-    try { await db.query("UPDATE vendors SET shop_name = name WHERE shop_name IS NULL"); } catch(e) {}
+    // 3. Special Migrations (one-off data fixes)
+    try { 
+        await db.supabaseQuery("UPDATE vendors SET shop_name = name WHERE shop_name IS NULL OR shop_name = ''"); 
+        if (db.query !== db.supabaseQuery) {
+            await db.query("UPDATE vendors SET shop_name = name WHERE shop_name IS NULL OR shop_name = ''"); 
+        }
+    } catch(e) {}
 
     console.log('--- DATABASE INITIALIZATION COMPLETE ---');
     process.exit(0);
