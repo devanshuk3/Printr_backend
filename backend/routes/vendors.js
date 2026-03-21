@@ -237,9 +237,9 @@ router.post('/files/upload-url', [
 
     // 5. Send to Print Queue
     await db.supabaseQuery(
-      `INSERT INTO print_queue (order_id, vendor_id, object_key, status)
-       VALUES ($1, $2, $3, $4)`,
-      [orderId, sanitizedVendorId, filePath, 'queued']
+      `INSERT INTO print_queue (order_id, order_number, vendor_id, user_id, file_name, file_type, object_key, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [orderId, orderId.toString(), sanitizedVendorId, req.user.id, finalFileName, extension, filePath, 'queued']
     );
 
     const command = new PutObjectCommand({
