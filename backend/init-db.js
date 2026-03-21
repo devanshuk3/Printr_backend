@@ -79,7 +79,10 @@ const initDb = async () => {
         completed_at TIMESTAMP
       );
     `;
-    await db.query(createPrintQueueTableQuery);
+      await db.query(createPrintQueueTableQuery);
+      try {
+        await db.query('ALTER TABLE print_queue DROP CONSTRAINT IF EXISTS print_queue_user_id_fkey');
+      } catch (e) { /* ignore if constraint doesn't exist */ }
     
     // Migrations for existing table
     await db.query('ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT \'uploaded\'');
@@ -114,6 +117,9 @@ const initDb = async () => {
         );
       `;
       await db.supabaseQuery(supaPrintQueueQuery);
+      try {
+        await db.supabaseQuery('ALTER TABLE print_queue DROP CONSTRAINT IF EXISTS print_queue_user_id_fkey');
+      } catch (e) { /* ignore if constraint doesn't exist */ }
       
       await db.supabaseQuery('ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT \'uploaded\'');
       await db.supabaseQuery('ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS user_id INTEGER');
