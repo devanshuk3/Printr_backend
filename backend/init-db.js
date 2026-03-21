@@ -41,11 +41,36 @@ const initDb = async () => {
     );
   `;
 
+  const createOrdersTableQuery = `
+    CREATE TABLE IF NOT EXISTS orders (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      vendor_id VARCHAR(50) NOT NULL,
+      file_name VARCHAR(255),
+      status VARCHAR(50) DEFAULT 'pending',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `;
+
   try {
     console.log('--- Initializing Primary DB (Render Auth/Users) ---');
     await db.query(createUserTableQuery);
     await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE');
     await db.query(createUploadsTableQuery);
+    await db.query(createOrdersTableQuery);
+    
+    const createPrintQueueTableQuery = `
+      CREATE TABLE IF NOT EXISTS print_queue (
+        id SERIAL PRIMARY KEY,
+        order_id INTEGER NOT NULL REFERENCES orders(id),
+        vendor_id VARCHAR(50) NOT NULL,
+        object_key VARCHAR(512) NOT NULL,
+        status VARCHAR(50) DEFAULT 'queued',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMP
+      );
+    `;
+    await db.query(createPrintQueueTableQuery);
     
     // Migrations for existing table
     await db.query('ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT \'uploaded\'');
@@ -54,14 +79,28 @@ const initDb = async () => {
     console.log('Primary DB ready.');
 
     console.log('--- Initializing Supabase DB (Vendors) ---');
-    try {
+    try {+
       await db.supabaseQuery(createVendorTableQuery);
       await db.supabaseQuery(createUploadsTableQuery);
+      await db.supabaseQuery(createOrdersTableQuery);
+      
+      const supaPrintQueueQuery = `
+        CREATE TABLE IF NOT EXISTS print_queue (
+          id SERIAL PRIMARY KEY,
+          order_id INTEGER NOT NULL REFERENCES orders(id),
+          vendor_id VARCHAR(50) NOT NULL,
+          object_key VARCHAR(512) NOT NULL,
+          status VARCHAR(50) DEFAULT 'queued',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          completed_at TIMESTAMP
+        );
+      `;
+      await db.supabaseQuery(supaPrintQueueQuery);
       
       // Migrations for Supabase
       await db.supabaseQuery('ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT \'uploaded\'');
       await db.supabaseQuery('ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS user_id INTEGER');
-      
+      +
       // Ensure vendors table has all required columns
       await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS bw_price DECIMAL(10, 2) NOT NULL DEFAULT 0');
       await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS color_price DECIMAL(10, 2) NOT NULL DEFAULT 0');

@@ -89,16 +89,66 @@ const manualDeleteFile = async (objectKey) => {
   }
 };
 
-// Run periodically according to set schedule (every 2 hours)
+/**
+ * Delete records from orders and print_queue after 1 hour of completion.
+ */
+const cleanupCompletedJobs = async () => {
+  console.log('[Cleanup] Checking for jobs completed >1 hour ago...');
+  try {
+    // 1. Get object keys for files that should be deleted
+    const result = await db.supabaseQuery(`
+      SELECT object_key, order_id FROM print_queue 
+      WHERE completed_at <= NOW() - INTERVAL '1 hour'
+    `);
+    
+    if (result.rows.length === 0) {
+      return;
+    }
+
+    const bucketName = process.env.R2_BUCKET_NAME;
+    const ordersToDelete = result.rows.map(r => r.order_id);
+    const keysToDelete = result.rows.map(r => ({ Key: r.object_key }));
+
+    // 2. Delete from R2
+    if (bucketName) {
+      try {
+        await r2.send(new DeleteObjectsCommand({
+          Bucket: bucketName,
+          Delete: { Objects: keysToDelete },
+        }));
+        console.log(`[Cleanup] Deleted ${keysToDelete.length} files from R2 for completed jobs.`);
+      } catch (r2Err) {
+        console.warn(`[Cleanup] R2 deletion failed for some completed jobs, but proceeding with DB cleanup.`);
+      }
+    }
+
+    // 3. Delete from DB Tables
+    await db.supabaseQuery('DELETE FROM print_queue WHERE order_id = ANY($1)', [ordersToDelete]);
+    await db.supabaseQuery('DELETE FROM orders WHERE id = ANY($1)', [ordersToDelete]);
+    await db.supabaseQuery('UPDATE uploaded_files SET deleted_at = NOW() WHERE object_key = ANY($1)', [result.rows.map(r => r.object_key)]);
+
+    console.log(`[Cleanup] Database records for ${ordersToDelete.length} completed jobs removed.`);
+  } catch (error) {
+    console.error('[Cleanup] Error in cleanupCompletedJobs:', error.message);
+  }
+};
+
+// Run periodically according to set schedule (every 30 minutes)
 const startCleanupTask = () => {
   // Run on startup
   cleanupOldFiles();
+  cleanupCompletedJobs();
 
   // Then schedule recurring cleanup
   cron.schedule('0 */2 * * *', () => {
     cleanupOldFiles();
   });
-  console.log('[Cleanup] Database-driven task scheduled (running every 2 hours).');
+  
+  cron.schedule('*/30 * * * *', () => {
+    cleanupCompletedJobs();
+  });
+  
+  console.log('[Cleanup] Scheduled: OldFiles (2h) and CompletedJobs (30m).');
 };
 
 module.exports = { startCleanupTask, cleanupOldFiles, manualDeleteFile };

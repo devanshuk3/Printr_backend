@@ -192,44 +192,58 @@ router.post('/files/upload-url', [
   const { vendorId, fileName, contentType } = req.body;
 
   try {
-    if (!process.env.R2_BUCKET_NAME) {
-      throw new Error("R2_BUCKET_NAME is not defined in environment variables");
-    }
+    // 0. Get user's username
+    const userRes = await db.supabaseQuery('SELECT username FROM users WHERE id = $1', [req.user.id]);
+    if (userRes.rows.length === 0) throw new Error("User details not found");
+    const username = userRes.rows[0].username || `user${req.user.id}`;
 
-    // Strict sanitization - folder names are always lowercase for case-insensitivity
+    // 1. Create a placeholder in Orders table to get a unique order ID
     const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
+    const orderRes = await db.supabaseQuery(
+      'INSERT INTO orders (user_id, vendor_id, status) VALUES ($1, $2, $3) RETURNING id',
+      [req.user.id, sanitizedVendorId, 'pending']
+    );
+    const orderId = orderRes.rows[0].id;
+
+    // 2. Generate the filename as username + unique_order_id
     const extension = fileName.split('.').pop()?.toLowerCase() || 'unknown';
-    // Preserve the fileName provided (which now contains username_orderid)
-    const cleanFileName = fileName.split('.').slice(0, -1).join('.').replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 100);
-    
-    // Ensure uniqueness while respecting the requested naming convention
-    const uniqueId = crypto.randomUUID().substring(0, 8); // Shorter suffix for cleaner names
-    const filePath = `${sanitizedVendorId}/${cleanFileName}_${uniqueId}.${extension}`;
+    const finalFileName = `${username}${orderId}.${extension}`;
+    const filePath = `${sanitizedVendorId}/${finalFileName}`;
+
+    // 3. Update the order with the final file name
+    await db.supabaseQuery(
+      'UPDATE orders SET file_name = $1 WHERE id = $2',
+      [finalFileName, orderId]
+    );
 
     const bucketName = process.env.R2_BUCKET_NAME ? process.env.R2_BUCKET_NAME.trim() : '';
     if (!bucketName) {
       throw new Error("R2_BUCKET_NAME is missing on server");
     }
 
-    // Insert record into database before uploading
-    // Default retention: 2 hours
+    // 4. Insert into uploaded_files for storage tracking (2 hour base retention)
     const deleteAfter = new Date(Date.now() + 2 * 60 * 60 * 1000);
-
     await db.supabaseQuery(
       `INSERT INTO uploaded_files (object_key, vendor_id, user_id, file_name, status, delete_after)
        VALUES ($1, $2, $3, $4, $5, $6)`,
-      [filePath, sanitizedVendorId, req.user.id, fileName, 'uploaded', deleteAfter]
+      [filePath, sanitizedVendorId, req.user.id, finalFileName, 'uploaded', deleteAfter]
+    );
+
+    // 5. Send to Print Queue
+    await db.supabaseQuery(
+      `INSERT INTO print_queue (order_id, vendor_id, object_key, status)
+       VALUES ($1, $2, $3, $4)`,
+      [orderId, sanitizedVendorId, filePath, 'queued']
     );
 
     const command = new PutObjectCommand({
       Bucket: bucketName,
       Key: filePath,
       ContentType: contentType, // Sign the content type
-      ChecksumAlgorithm: undefined,
     });
 
     const uploadUrl = await getSignedUrl(r2, command, { expiresIn: 600 });
-    res.json({ uploadUrl, filePath, bucket: bucketName });
+    res.json({ uploadUrl, filePath, bucket: bucketName, orderId, finalFileName });
   } catch (err) {
     console.error("R2 Upload URL Error Detail:", err);
     handleError(res, err, "Generating upload URL failed");
@@ -275,6 +289,43 @@ router.get('/files/history', auth, async (req, res) => {
     res.json(mappedHistory);
   } catch (err) {
     handleError(res, err, "Fetching print history failed");
+  }
+});
+
+// Mark a job as printed (COMPLETED)
+router.post('/printed', [
+  auth,
+  body('orderId').isInt().withMessage('Invalid Order ID'),
+  validate
+], async (req, res) => {
+  const { orderId } = req.body;
+
+  try {
+    // 1. Update the print_queue table
+    const result = await db.supabaseQuery(
+      'UPDATE print_queue SET status = $1, completed_at = NOW() WHERE order_id = $2 RETURNING *',
+      ['printed', orderId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Order not found in print queue" });
+    }
+
+    // 2. Also update the orders table status
+    await db.supabaseQuery(
+      'UPDATE orders SET status = $1 WHERE id = $2',
+      ['completed', orderId]
+    );
+
+    // 3. Update uploaded_files status
+    await db.supabaseQuery(
+      'UPDATE uploaded_files SET status = $1 WHERE file_name = (SELECT file_name FROM orders WHERE id = $2)',
+      ['printed', orderId]
+    );
+
+    res.json({ message: "Job marked as printed successfully", orderId });
+  } catch (err) {
+    handleError(res, err, "Marking job as printed failed");
   }
 });
 
