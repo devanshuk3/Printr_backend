@@ -135,14 +135,20 @@ const initDb = async () => {
       await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10, 2)');
       await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP');
       await db.query('ALTER TABLE print_queue ADD COLUMN IF NOT EXISTS object_key VARCHAR(512)');
+      // Final safety check for all Supabase tables
+      await db.supabaseQuery(createVendorTableQuery);
+      await db.supabaseQuery(createUploadsTableQuery);
+      await db.supabaseQuery(createOrdersTableQuery);
+      await db.supabaseQuery(supaPrintQueueQuery);
+
       // Ensure vendors table has all required columns
-      await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS bw_price DECIMAL(10, 2) NOT NULL DEFAULT 0');
-      await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS color_price DECIMAL(10, 2) NOT NULL DEFAULT 0');
-      await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS shop_name VARCHAR(255)');
-      await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS phone VARCHAR(20)');
-      await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS upi_id VARCHAR(255)');
-      await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS pages_printed INTEGER DEFAULT 0');
-      await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS platform_fee DECIMAL(10, 2) DEFAULT 0.00');
+      try { await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS bw_price DECIMAL(10, 2) NOT NULL DEFAULT 0'); } catch (e) {}
+      try { await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS color_price DECIMAL(10, 2) NOT NULL DEFAULT 0'); } catch (e) {}
+      try { await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS shop_name VARCHAR(255)'); } catch (e) {}
+      try { await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS phone VARCHAR(20)'); } catch (e) {}
+      try { await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS upi_id VARCHAR(255)'); } catch (e) {}
+      try { await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS pages_printed INTEGER DEFAULT 0'); } catch (e) {}
+      try { await db.supabaseQuery('ALTER TABLE vendors ADD COLUMN IF NOT EXISTS platform_fee DECIMAL(10, 2) DEFAULT 0.00'); } catch (e) {}
       
       // Migration: Copy from 'name' to 'shop_name' if necessary
       try {
