@@ -110,16 +110,16 @@ app.use(express.static('public'));
 
 // 4. Rate Limiting for Auth and Sensitive Routes
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Limit each IP to 10 requests per windowMs for auth
-  message: { message: "Too many login attempts, please try again after 15 minutes" },
+  windowMs: 15 * 60 * 1000, 
+  max: 50, // Increased for development
+  message: { message: "Too many attempts, please try again later" },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100, // General limit
+  max: 300, // General limit (increased)
   standardHeaders: true,
   legacyHeaders: false,
 });
