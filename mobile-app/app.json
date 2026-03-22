@@ -4,7 +4,7 @@
     "slug": "printr",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/Printr_Logo_transparent_White.png",
+    "icon": "./assets/images/Logo_white.png",
     "scheme": "printr",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -15,7 +15,7 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#000000",
-        "foregroundImage": "./assets/images/Printr_Logo_transparent_White.png",
+        "foregroundImage": "./assets/images/Logo_white.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
@@ -32,7 +32,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/Printr_Logo_transparent_White.png",
+          "image": "./assets/images/Logo_white.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#000000",

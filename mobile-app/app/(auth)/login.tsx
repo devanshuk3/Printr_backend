@@ -65,6 +65,9 @@ const LoginPage = () => {
 
   const handleGoogleLogin = async (idToken: string) => {
     setLoading(true);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
     try {
       const resp = await fetch(`${API_URL}/auth/google`, {
         method: 'POST',
@@ -72,7 +75,9 @@ const LoginPage = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ idToken }),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
 
       const data = await resp.json();
 

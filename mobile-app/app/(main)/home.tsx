@@ -209,8 +209,15 @@ export default function HomePage() {
 
     const normalizedVendorId = vendorId.trim().toLowerCase();
     setIsVerifying(true);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+
     try {
-      const response = await fetch(`${API_URL}/vendors/verify/${normalizedVendorId}`);
+      const response = await fetch(`${API_URL}/vendors/verify/${normalizedVendorId}`, {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      
       const contentType = response.headers.get("content-type");
       
       if (!contentType || !contentType.includes("application/json")) {
