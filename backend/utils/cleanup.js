@@ -169,4 +169,9 @@ const startCleanupTask = () => {
   console.log('[Cleanup] Scheduled: Queue Purge (1h), History Purge (30m), Printed-Storage (10m).');
 };
 
-module.exports = { startCleanupTask, cleanupOldFiles };
+module.exports = { 
+  startCleanupTask, 
+  cleanupOldFiles, 
+  cleanupDatabaseHistory, 
+  cleanupCompletedJobs 
+};
