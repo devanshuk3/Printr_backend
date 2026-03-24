@@ -83,8 +83,8 @@ const AdminVendorsPage = () => {
             {robohashUrl ? (
                 <Image source={{ uri: robohashUrl }} style={styles.profileImageSmall} />
             ) : (
-                <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#f0f7ff', alignItems: 'center', justifyContent: 'center' }}>
-                     <TrendingUp size={20} color="#1271dd" />
+                <View style={{ width: 54, height: 54, borderRadius: 27, backgroundColor: '#f0f7ff', alignItems: 'center', justifyContent: 'center' }}>
+                     <TrendingUp size={24} color="#1271dd" />
                 </View>
             )}
         </View>
@@ -178,9 +178,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   profileIconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     backgroundColor: "#eef6ff",
     alignItems: "center",
     justifyContent: "center",

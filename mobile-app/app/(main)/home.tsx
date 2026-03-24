@@ -23,7 +23,7 @@ import * as IntentLauncher from "expo-intent-launcher";
 import * as Sharing from "expo-sharing";
 import { FilePreviewModal } from "../../components/modals/FilePreviewModal";
 import { API_URL } from "../../constants/apiConfig";
-import { getAvatarHash, getRobohashUrl } from "../../utils/avatar";
+import { getRobohashUrl } from "../../utils/avatar";
 import * as SecureStore from 'expo-secure-store';
 import {
   CloudUpload,
@@ -32,7 +32,6 @@ import {
   Clock,
   XCircle,
   FileText,
-  ChevronRight,
   LogOut,
   Trash2,
   User,
@@ -40,9 +39,7 @@ import {
   UserCircle,
   LayoutDashboard,
   Eye,
-  MoreHorizontal
 } from "lucide-react-native";
-import { decode } from "base64-arraybuffer";
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -267,6 +264,30 @@ export default function HomePage() {
       setUserData(updatedUser);
       await saveAuthData(token || '', updatedUser);
     }
+  };
+
+  const handleLogout = async () => {
+    Alert.alert(
+      "Log Out",
+      "Are you sure you want to log out?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Log Out", 
+          style: "destructive",
+          onPress: async () => {
+             try {
+                setIsProfileVisible(false);
+                await clearAuthData();
+                router.replace("/(auth)/login");
+             } catch (error) {
+                console.error("Logout error:", error);
+                router.replace("/(auth)/login");
+             }
+          }
+        }
+      ]
+    );
   };
 
   const handleDeleteAccount = async () => {
@@ -587,12 +608,8 @@ export default function HomePage() {
                 </View>
 
                 <TouchableOpacity 
-                  style={styles.profileLogoutBtn}
-                  onPress={async () => {
-                    setIsProfileVisible(false);
-                    await clearAuthData();
-                    router.replace("/(auth)/login");
-                  }}
+                   style={styles.profileLogoutBtn}
+                   onPress={handleLogout}
                 >
                   <LogOut size={20} color="#ffffff" />
                   <Text style={styles.profileLogoutText}>Log Out</Text>
@@ -642,20 +659,6 @@ export default function HomePage() {
                 ) : (
                   <User size={20} color="#2e3563" />
                 )}
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.iconCircle}
-                onPress={async () => {
-                  try {
-                    await clearAuthData();
-                    router.replace("/(auth)/login");
-                  } catch (error) {
-                    console.error("Logout error:", error);
-                    router.replace("/(auth)/login");
-                  }
-                }}
-              >
-                <LogOut size={20} color="#e31e1e" />
               </TouchableOpacity>
             </View>
           </View>
@@ -896,6 +899,7 @@ const styles = StyleSheet.create({
   headerIcons: {
     flexDirection: "row",
     gap: 12,
+    alignItems: "center",
   },
   iconCircle: {
     width: 44,
@@ -908,10 +912,12 @@ const styles = StyleSheet.create({
     borderColor: "#e1e4e8",
   },
   welcomeText: {
+    flex: 1,
     fontWeight: "700",
     color: "#2e3563",
     fontSize: 32,
     lineHeight: 40,
+    paddingRight: 10,
   },
   section: {
     marginBottom: 40,
@@ -1408,9 +1414,9 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   profileIconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     backgroundColor: "#eef6ff",
     alignItems: "center",
     justifyContent: "center",
