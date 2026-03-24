@@ -54,7 +54,7 @@ const parsePageRange = (rangeStr: string, maxPages: number) => {
 const calculateConvenienceFee = (pages: number): number => {
     if (pages <= 0) return 0;
     if (pages <= 5) return 1;
-    if (pages <= 20) return 3;
+    if (pages <= 20) return 2;
     if (pages <= 50) return 5;
     return 8;
 };
@@ -155,13 +155,21 @@ const PrintSettings = () => {
 
      useEffect(() => {
           const price = formData.colorMode === 'Colored' ? parseFloat(colorPrice || "0") : parseFloat(bwPrice || "0");
-          const basePrintingCost = totalPages * copies * price;
+          
+          // Calculate billing workload based on sheets used
+          // If double-sided, every 2 pages fit on 1 sheet. 
+          // Total sheets per copy = Math.ceil(totalPages / 2)
+          const sheetsPerCopy = (formData.doubleSided === 'YES') 
+               ? Math.ceil(totalPages / 2) 
+               : totalPages;
+
+          const basePrintingCost = sheetsPerCopy * copies * price;
           
           const fee = calculateConvenienceFee(totalPages * copies);
           setConvenienceFee(fee);
           
           setTotalCost(basePrintingCost + fee);
-     }, [totalPages, copies, formData.colorMode, bwPrice, colorPrice]);
+     }, [totalPages, copies, formData.colorMode, formData.doubleSided, bwPrice, colorPrice]);
 
      const handleChange = (field: string, value: string) => {
           setFormData(prev => ({ ...prev, [field]: value }));
