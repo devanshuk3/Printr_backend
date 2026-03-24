@@ -136,20 +136,30 @@ const cleanupCompletedJobs = async () => {
 };
 // Run periodically according to set schedule (every 30 minutes)
 const startCleanupTask = () => {
+  console.log('[Cleanup] Initializing scheduled tasks...');
+  
   // Run on startup
-  cleanupOldFiles();
-  cleanupCompletedJobs();
+  cleanupOldFiles().catch(err => console.error('[Cleanup] Startup OldFiles failed:', err.message));
+  cleanupCompletedJobs().catch(err => console.error('[Cleanup] Startup CompletedJobs failed:', err.message));
 
   // Then schedule recurring cleanup
-  cron.schedule('0 */2 * * *', () => {
-    cleanupOldFiles();
+  // Old files cleanup: Every 2 hours
+  cron.schedule('0 */2 * * *', async () => {
+    const timestamp = new Date().toLocaleTimeString();
+    console.log(`[Cleanup] [${timestamp}] Running scheduled: cleanupOldFiles`);
+    await cleanupOldFiles();
+    console.log(`[Cleanup] [${timestamp}] Finished scheduled: cleanupOldFiles`);
   });
   
-  cron.schedule('*/30 * * * *', () => {
-    cleanupCompletedJobs();
+  // Completed jobs cleanup: Every 30 minutes
+  cron.schedule('*/30 * * * *', async () => {
+    const timestamp = new Date().toLocaleTimeString();
+    console.log(`[Cleanup] [${timestamp}] Running scheduled: cleanupCompletedJobs`);
+    await cleanupCompletedJobs();
+    console.log(`[Cleanup] [${timestamp}] Finished scheduled: cleanupCompletedJobs`);
   });
   
-  console.log('[Cleanup] Scheduled: OldFiles (2h) and CompletedJobs (30m).');
+  console.log('[Cleanup] Scheduled: OldFiles (at hour 0 mod 2) and CompletedJobs (every 30m).');
 };
 
 module.exports = { startCleanupTask, cleanupOldFiles, manualDeleteFile };

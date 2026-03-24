@@ -292,15 +292,38 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server started on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
   
-  // Keep-alive mechanism from ENV
+  // Keep-alive mechanism to prevent Render from spinning down
   const KEEP_ALIVE_URL = process.env.KEEP_ALIVE_URL;
-  if (KEEP_ALIVE_URL && (process.env.NODE_ENV === 'production' || process.env.RENDER)) {
-    setInterval(() => {
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER;
+
+  if (KEEP_ALIVE_URL && isProduction) {
+    console.log(`[Keep-Alive] Initializing health ping to ${KEEP_ALIVE_URL} every 5 minutes...`);
+    
+    // Initial ping on start
+    const ping = () => {
       https.get(KEEP_ALIVE_URL, (res) => {
-        // Silent success logger
+        // Consume response data to prevent memory leaks / socket hangs
+        res.on('data', () => {});
+        res.on('end', () => {
+          if (res.statusCode === 200) {
+            console.log(`[Keep-Alive] Ping success: ${new Date().toLocaleTimeString()} - Status ${res.statusCode}`);
+          } else {
+            console.warn(`[Keep-Alive] Ping status mismatch: ${res.statusCode}`);
+          }
+        });
       }).on('error', (err) => {
-        console.error('Keep-alive ping failed');
+        console.error('[Keep-Alive] Ping error:', err.message);
       });
-    }, 5 * 60 * 1000); // 5 Minutes
+    };
+
+    // Immediate ping to confirm setup
+    ping();
+    
+    // Scheduled ping
+    setInterval(ping, 5 * 60 * 1000); 
+  } else if (KEEP_ALIVE_URL) {
+    console.log('[Keep-Alive] Skipped: Envs indicate non-production mode.');
+  } else {
+    console.log('[Keep-Alive] Skipped: KEEP_ALIVE_URL not found in env.');
   }
 });
