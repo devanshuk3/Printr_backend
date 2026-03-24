@@ -237,8 +237,8 @@ router.post('/files/upload-url', [
       throw new Error("R2_BUCKET_NAME is missing on server");
     }
 
-    // 4. Insert into uploaded_files for storage tracking (2 hour base retention)
-    const deleteAfter = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    // 4. Insert into uploaded_files for storage tracking (10 hour base retention)
+    const deleteAfter = new Date(Date.now() + 10 * 60 * 60 * 1000);
     await db.supabaseQuery(
       `INSERT INTO uploaded_files (object_key, vendor_id, user_id, file_name, status, delete_after)
        VALUES ($1, $2, $3, $4, $5, $6)`,

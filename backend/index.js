@@ -60,10 +60,6 @@ const ensureTables = async () => {
     }
   }
 
-  const drops = [];
-  for (const sql of drops) {
-    try { await db.query(sql); } catch (e) {}
-  }
 
   console.log('[Boot] All tables verified.');
 };
@@ -166,7 +162,7 @@ app.post('/api/pay/init', (req, res) => {
   
   // Cleanup after 15 mins to prevent memory leak
   setTimeout(() => paymentSessions.delete(sessionId), 15 * 60 * 1000);
-  
+
   res.json({ sessionId });
 });
 

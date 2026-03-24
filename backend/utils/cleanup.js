@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const r2 = require('../r2');
 const db = require('../db');
-const { DeleteObjectsCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const { DeleteObjectsCommand } = require('@aws-sdk/client-s3');
 
 /**
  * Cleanup expired files from R2 using Database tracking.
@@ -63,103 +63,110 @@ const cleanupOldFiles = async () => {
 };
 
 /**
- * Manually delete a specific file (used for explicit removals)
+ * Delete records from history (DB) after they are 3 hours old.
+ * This applies to Both uploaded_files and orders.
  */
-const manualDeleteFile = async (objectKey) => {
+const cleanupDatabaseHistory = async () => {
+  console.log('[Cleanup] purging old database history (3h history / 10h queue policy)...');
   try {
-    const bucketName = process.env.R2_BUCKET_NAME;
+    // 1. Delete completed/failed records after 3 hours (History)
+    const historyRes = await db.supabaseQuery(`
+      DELETE FROM uploaded_files 
+      WHERE status IN ('printed', 'failed') 
+      AND uploaded_at <= NOW() - INTERVAL '3 hours'
+    `);
+
+    // 2. Delete old order records after 3 hours
+    const orderRes = await db.supabaseQuery(`
+      DELETE FROM orders 
+      WHERE created_at <= NOW() - INTERVAL '3 hours'
+    `);
     
-    // 1. Delete from R2
-    await r2.send(new DeleteObjectCommand({
-      Bucket: bucketName,
-      Key: objectKey
-    }));
-
-    // 2. Update DB
-    await db.supabaseQuery(
-      'UPDATE uploaded_files SET deleted_at = NOW() WHERE object_key = $1',
-      [objectKey]
-    );
-
-    console.log(`[Manual Delete] Success: ${objectKey}`);
-    return true;
+    // 3. Absolute 10-hour purge for everything (Queue limit)
+    const absoluteRes = await db.supabaseQuery(`
+      DELETE FROM uploaded_files 
+      WHERE uploaded_at <= NOW() - INTERVAL '10 hours'
+    `);
+    
+    console.log(`[Cleanup] purged ${historyRes.rowCount || 0} history, ${orderRes.rowCount || 0} orders, and ${absoluteRes.rowCount || 0} expired queue items.`);
   } catch (err) {
-    console.error(`[Manual Delete] Failed: ${objectKey}`, err.message);
-    throw err;
+    console.error('[Cleanup] Error in cleanupDatabaseHistory:', err.message);
   }
 };
 
 /**
- * Delete records from orders and print_queue after 1 hour of completion.
+ * Handle "as soon as printed" cleanup for STORAGE (R2).
+ * Records remain in DB for 3 hours (handled by history purger).
  */
 const cleanupCompletedJobs = async () => {
-  console.log('[Cleanup] Checking for completed jobs for cleanup...');
+  console.log('[Cleanup] Checking for freshly printed jobs to purge from storage...');
   try {
-    // 1. Get object keys for files that should be deleted based on uploaded_files or orders status
     const result = await db.supabaseQuery(`
-      SELECT object_key, file_name FROM uploaded_files 
-      WHERE status = 'printed' AND uploaded_at <= NOW() - INTERVAL '1 hour'
+      SELECT id, object_key FROM uploaded_files 
+      WHERE status = 'printed' 
       AND deleted_at IS NULL
     `);
     
-    if (result.rows.length === 0) {
-      return;
-    }
+    if (result.rows.length === 0) return;
 
     const bucketName = process.env.R2_BUCKET_NAME;
-    const keysToDelete = result.rows.map(r => ({ Key: r.object_key }));
+    const batch = result.rows;
+    const keys = batch.map(obj => ({ Key: obj.object_key }));
+    const ids = batch.map(obj => obj.id);
 
-    // 2. Delete from R2
+    // 1. Delete from R2
     if (bucketName) {
       try {
         await r2.send(new DeleteObjectsCommand({
           Bucket: bucketName,
-          Delete: { Objects: keysToDelete },
+          Delete: { Objects: keys },
         }));
-        console.log(`[Cleanup] Deleted ${keysToDelete.length} files from R2 for completed jobs.`);
       } catch (r2Err) {
-        console.warn(`[Cleanup] R2 deletion failed for some completed jobs.`);
+        console.warn(`[Cleanup] R2 deletion failed for completed jobs.`);
       }
     }
 
-    // 3. Mark as deleted in DB
-    const keys = result.rows.map(r => r.object_key);
-    await db.supabaseQuery('UPDATE uploaded_files SET deleted_at = NOW() WHERE object_key = ANY($1)', [keys]);
+    // 2. Mark as deleted in DB (will be permanently removed by history purger later)
+    await db.supabaseQuery(
+      'UPDATE uploaded_files SET deleted_at = NOW() WHERE id = ANY($1)',
+      [ids]
+    );
 
-    // 4. Optionally delete the order records if they are old
-    await db.supabaseQuery(`DELETE FROM orders WHERE file_name = ANY($1) AND created_at <= NOW() - INTERVAL '24 hours'`, [result.rows.map(r => r.file_name)]);
-
-    console.log(`[Cleanup] Database records for ${keys.length} completed jobs updated.`);
+    console.log(`[Cleanup] Storage cleared for ${batch.length} printed jobs.`);
   } catch (error) {
     console.error('[Cleanup] Error in cleanupCompletedJobs:', error.message);
   }
 };
-// Run periodically according to set schedule (every 30 minutes)
-const startCleanupTask = () => {
-  console.log('[Cleanup] Initializing scheduled tasks...');
-  
-  // Run on startup
-  cleanupOldFiles().catch(err => console.error('[Cleanup] Startup OldFiles failed:', err.message));
-  cleanupCompletedJobs().catch(err => console.error('[Cleanup] Startup CompletedJobs failed:', err.message));
 
-  // Then schedule recurring cleanup
-  // Old files cleanup: Every 2 hours
-  cron.schedule('0 */2 * * *', async () => {
-    const timestamp = new Date().toLocaleTimeString();
-    console.log(`[Cleanup] [${timestamp}] Running scheduled: cleanupOldFiles`);
+// Start Background Tasks
+const startCleanupTask = () => {
+  console.log('[Cleanup] Initializing specialized scheduled tasks...');
+  
+  // Initial runs
+  cleanupOldFiles().catch(() => {});
+  cleanupCompletedJobs().catch(() => {});
+  cleanupDatabaseHistory().catch(() => {});
+
+  // Recurring schedules
+  // 1. Files/Queue Cleanup: Check for expired (10h) files/records every hour
+  cron.schedule('0 * * * *', async () => {
+    console.log(`[Cleanup] Starting 10-hour queue/file check...`);
     await cleanupOldFiles();
-    console.log(`[Cleanup] [${timestamp}] Finished scheduled: cleanupOldFiles`);
   });
   
-  // Completed jobs cleanup: Every 30 minutes
+  // 2. History Purge: Delete DB records older than 3 hours, every 30 minutes
   cron.schedule('*/30 * * * *', async () => {
-    const timestamp = new Date().toLocaleTimeString();
-    console.log(`[Cleanup] [${timestamp}] Running scheduled: cleanupCompletedJobs`);
-    await cleanupCompletedJobs();
-    console.log(`[Cleanup] [${timestamp}] Finished scheduled: cleanupCompletedJobs`);
+    console.log(`[Cleanup] Starting history purge (3h policy)...`);
+    await cleanupDatabaseHistory();
   });
   
-  console.log('[Cleanup] Scheduled: OldFiles (at hour 0 mod 2) and CompletedJobs (every 30m).');
+  // 3. STORAGE Immediate Clean: Delete printed files from R2 every 10 minutes
+  cron.schedule('*/10 * * * *', async () => {
+    console.log(`[Cleanup] Starting immediate printed-file storage removal...`);
+    await cleanupCompletedJobs();
+  });
+  
+  console.log('[Cleanup] Scheduled: Queue Purge (1h), History Purge (30m), Printed-Storage (10m).');
 };
 
-module.exports = { startCleanupTask, cleanupOldFiles, manualDeleteFile };
+module.exports = { startCleanupTask, cleanupOldFiles };

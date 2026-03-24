@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, TextInput, ScrollView, StyleSheet, Alert, Platform, Linking, Modal, Animated, ActivityIndicator } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Plus, Minus, ChevronLeft, FileText, Hash, Copy, Check, X, Smartphone, AlertCircle, CreditCard } from 'lucide-react-native';
@@ -50,6 +51,14 @@ const parsePageRange = (rangeStr: string, maxPages: number) => {
      return processedPages.size;
 };
 
+const calculateConvenienceFee = (pages: number): number => {
+    if (pages <= 0) return 0;
+    if (pages <= 5) return 1;
+    if (pages <= 20) return 3;
+    if (pages <= 50) return 5;
+    return 8;
+};
+
 const getUpiParam = (url: string, param: string) => {
      const regex = new RegExp(`(?:[?&]|^)${param}=([^&^#]*)`, 'i');
      const match = url.match(regex);
@@ -73,6 +82,7 @@ const PrintSettings = () => {
      const [totalPages, setTotalPages] = useState(0);
      const [fullDocPages, setFullDocPages] = useState(0);
      const [totalCost, setTotalCost] = useState(0);
+     const [convenienceFee, setConvenienceFee] = useState(0);
      const [isLoadingPages, setIsLoadingPages] = useState(true);
      const [formData, setFormData] = useState({
           colorMode: 'Colored',
@@ -89,6 +99,9 @@ const PrintSettings = () => {
      const [isUploading, setIsUploading] = useState(false);
      const [showSuccessModal, setShowSuccessModal] = useState(false);
      const [successScale] = useState(new Animated.Value(0));
+     const [rippleScale] = useState(new Animated.Value(0));
+     const [rippleOpacity] = useState(new Animated.Value(0.4));
+     const [iconRotate] = useState(new Animated.Value(0));
      const [isFetchingVendor, setIsFetchingVendor] = useState(false);
      const [vendorUPI, setVendorUPI] = useState<{ upiId: string, name: string } | null>(null);
      const [upiError, setUpiError] = useState<string | null>(null);
@@ -142,8 +155,12 @@ const PrintSettings = () => {
 
      useEffect(() => {
           const price = formData.colorMode === 'Colored' ? parseFloat(colorPrice || "0") : parseFloat(bwPrice || "0");
-          const cost = totalPages * copies * price;
-          setTotalCost(cost);
+          const basePrintingCost = totalPages * copies * price;
+          
+          const fee = calculateConvenienceFee(totalPages * copies);
+          setConvenienceFee(fee);
+          
+          setTotalCost(basePrintingCost + fee);
      }, [totalPages, copies, formData.colorMode, bwPrice, colorPrice]);
 
      const handleChange = (field: string, value: string) => {
@@ -282,12 +299,51 @@ const PrintSettings = () => {
 
      const handleSuccess = () => {
           setShowSuccessModal(true);
-          Animated.spring(successScale, {
-               toValue: 1,
-               tension: 50,
-               friction: 7,
-               useNativeDriver: true,
-          }).start();
+          
+          // Reset values
+          successScale.setValue(0);
+          rippleScale.setValue(0);
+          rippleOpacity.setValue(0.5);
+          iconRotate.setValue(0);
+
+          // Trigger Success Haptic
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+          // Combined Animation Group
+          Animated.parallel([
+               // Main scale-in bounce
+               Animated.spring(successScale, {
+                    toValue: 1,
+                    tension: 50,
+                    friction: 6,
+                    useNativeDriver: true,
+               }),
+               // Ripple pulse expansion
+               Animated.sequence([
+                    Animated.delay(150),
+                    Animated.parallel([
+                        Animated.timing(rippleScale, {
+                            toValue: 2.2,
+                            duration: 1200,
+                            useNativeDriver: true,
+                        }),
+                        Animated.timing(rippleOpacity, {
+                            toValue: 0,
+                            duration: 1200,
+                            useNativeDriver: true,
+                        })
+                    ])
+               ]),
+               // Subtle rotation for playfulness
+               Animated.sequence([
+                   Animated.delay(100),
+                   Animated.timing(iconRotate, {
+                        toValue: 1,
+                        duration: 600,
+                        useNativeDriver: true,
+                   })
+               ])
+          ]).start();
      };
 
      const completePrintJob = async () => {
@@ -626,16 +682,24 @@ const PrintSettings = () => {
                                         </TouchableOpacity>
                                    </View>
 
-                                   <View style={styles.paymentSummary}>
-                                        <View style={styles.summaryRow}>
-                                             <Text style={styles.summaryRowLabel}>Amount:</Text>
-                                             <Text style={styles.summaryRowValue}>₹{pendingAmount}</Text>
-                                        </View>
-                                        <View style={styles.summaryRow}>
-                                             <Text style={styles.summaryRowLabel}>Note:</Text>
-                                             <Text style={styles.summaryRowValue} numberOfLines={1}>Printr Job {vendorId}</Text>
-                                        </View>
-                                   </View>
+                                    <View style={styles.paymentSummary}>
+                                         <View style={styles.summaryRow}>
+                                              <Text style={styles.summaryRowLabel}>Printing Cost:</Text>
+                                              <Text style={styles.summaryRowValue}>₹{(totalCost - convenienceFee).toFixed(2)}</Text>
+                                         </View>
+                                         <View style={styles.summaryRow}>
+                                              <Text style={styles.summaryRowLabel}>Platform Fee:</Text>
+                                              <Text style={styles.summaryRowValue}>₹{convenienceFee.toFixed(2)}</Text>
+                                         </View>
+                                         <View style={styles.summaryRow}>
+                                              <Text style={styles.summaryRowLabel}>Total Amount:</Text>
+                                              <Text style={[styles.summaryRowValue, { color: '#1271dd', fontWeight: '800' }]}>₹{pendingAmount}</Text>
+                                         </View>
+                                         <View style={styles.summaryRow}>
+                                              <Text style={styles.summaryRowLabel}>Note:</Text>
+                                              <Text style={styles.summaryRowValue} numberOfLines={1}>Printr Job {vendorId}</Text>
+                                         </View>
+                                    </View>
 
                                    <View style={styles.verificationNote}>
                                         <Text style={styles.verificationNoteText}>
@@ -672,22 +736,41 @@ const PrintSettings = () => {
                     </View>
                </Modal>
 
-               {/* Success Animation Modal */}
-               <Modal
-                    visible={showSuccessModal}
-                    transparent={true}
-                    animationType="fade"
-               >
-                    <View style={styles.successOverlay}>
-                         <View style={styles.successCard}>
-                              <Animated.View style={[
-                                   styles.successIconCircle,
-                                   { transform: [{ scale: successScale }] }
-                              ]}>
-                                   <Check size={48} color="#ffffff" strokeWidth={4} />
-                              </Animated.View>
+                {/* Success Animation Modal */}
+                <Modal
+                     visible={showSuccessModal}
+                     transparent={true}
+                     animationType="fade"
+                >
+                     <View style={styles.successOverlay}>
+                          <View style={styles.successCard}>
+                               <View style={styles.successIconWrapper}>
+                                  {/* Ripple Background Animation */}
+                                  <Animated.View style={[
+                                      styles.successRipple,
+                                      {
+                                          transform: [{ scale: rippleScale }],
+                                          opacity: rippleOpacity
+                                      }
+                                  ]} />
+                                  
+                                  <Animated.View style={[
+                                       styles.successIconCircle,
+                                       { 
+                                            transform: [
+                                                { scale: successScale },
+                                                { rotate: iconRotate.interpolate({
+                                                    inputRange: [0, 1],
+                                                    outputRange: ['-15deg', '0deg']
+                                                })}
+                                            ] 
+                                       }
+                                  ]}>
+                                       <Check size={54} color="#ffffff" strokeWidth={4.5} />
+                                  </Animated.View>
+                               </View>
 
-                              <Text style={styles.successTitle}>Files Uploaded!</Text>
+                               <Text style={styles.successTitle}>Files Uploaded!</Text>
                               <Text style={styles.successSubtitle}>
                                    Your print job has been securely sent to the cloud. The vendor will process it once they verify the payment.
                               </Text>
@@ -955,6 +1038,21 @@ const styles = StyleSheet.create({
           shadowRadius: 30,
           elevation: 20,
      },
+     successIconWrapper: {
+          width: 140,
+          height: 140,
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginBottom: 8,
+          position: 'relative',
+     },
+     successRipple: {
+          position: 'absolute',
+          width: 100,
+          height: 100,
+          borderRadius: 50,
+          backgroundColor: '#10b981',
+     },
      successIconCircle: {
           width: 100,
           height: 100,
@@ -962,12 +1060,12 @@ const styles = StyleSheet.create({
           backgroundColor: '#10b981',
           alignItems: 'center',
           justifyContent: 'center',
-          marginBottom: 24,
           shadowColor: '#10b981',
-          shadowOffset: { width: 0, height: 8 },
-          shadowOpacity: 0.4,
-          shadowRadius: 12,
-          elevation: 8,
+          shadowOffset: { width: 0, height: 12 },
+          shadowOpacity: 0.5,
+          shadowRadius: 16,
+          elevation: 12,
+          zIndex: 2,
      },
      successTitle: {
           fontSize: 24,
