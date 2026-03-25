@@ -276,7 +276,7 @@ router.get('/files/history', auth, async (req, res) => {
        LIMIT 50`,
       [req.user.id]
     );
-
+    
     const mappedHistory = historyRes.rows.map(row => {
       // Logic for status mapping
       let displayStatus = 'in_queue';
