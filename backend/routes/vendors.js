@@ -15,8 +15,8 @@ const crypto = require('crypto');
  */
 const handleError = (res, err, customMsg = "Server Error") => {
   console.error(`${customMsg}:`, err.message || err);
-  return res.status(500).json({ 
-    message: process.env.NODE_ENV === 'production' ? customMsg : `${customMsg}: ${err.message}` 
+  return res.status(500).json({
+    message: process.env.NODE_ENV === 'production' ? customMsg : `${customMsg}: ${err.message}`
   });
 };
 
@@ -127,7 +127,7 @@ router.post('/files/clear-vendor', [
     if (!bucketName) throw new Error("R2_BUCKET_NAME is not configured");
 
     const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
-    
+
     // Optimize: Instead of LISTing the R2 bucket (Class A), we query the database
     // This is much faster and cheaper as it avoids scanning the entire bucket folder.
     const result = await db.supabaseQuery(
@@ -173,12 +173,12 @@ router.post('/files/upload-url', [
   body('vendorId').trim().notEmpty().matches(/^[a-zA-Z0-9_-]+$/).withMessage('Invalid Vendor ID format'),
   body('fileName').trim().notEmpty().isLength({ max: 100 }).escape(),
   body('contentType').trim().notEmpty().isIn([
-    'application/pdf', 
-    'image/jpeg', 
-    'image/jpg', 
-    'image/png', 
+    'application/pdf',
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
     'image/webp',
-    'application/msword', 
+    'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'application/vnd.ms-powerpoint',
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
@@ -209,14 +209,14 @@ router.post('/files/upload-url', [
     const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
     let orderId = null;
     if (contentType !== 'application/json') {
-        const orderRes = await db.supabaseQuery(
-          'INSERT INTO orders (user_id, vendor_id, status) VALUES ($1, $2, $3) RETURNING id',
-          [req.user.id, sanitizedVendorId, 'pending']
-        );
-        orderId = orderRes.rows[0].id;
+      const orderRes = await db.supabaseQuery(
+        'INSERT INTO orders (user_id, vendor_id, status) VALUES ($1, $2, $3) RETURNING id',
+        [req.user.id, sanitizedVendorId, 'pending']
+      );
+      orderId = orderRes.rows[0].id;
     } else {
-        // For JSON preferences, we generate a random temporary numeric ID if one isn't provided
-        orderId = Date.now().toString().slice(-8); 
+      // For JSON preferences, we generate a random temporary numeric ID if one isn't provided
+      orderId = Date.now().toString().slice(-8);
     }
 
     // 2. Generate the filename as username + unique_order_id
@@ -226,10 +226,10 @@ router.post('/files/upload-url', [
 
     // 3. Update the order with the final file name (SKIP FOR JSON)
     if (contentType !== 'application/json') {
-        await db.supabaseQuery(
-          'UPDATE orders SET file_name = $1 WHERE id = $2',
-          [finalFileName, orderId]
-        );
+      await db.supabaseQuery(
+        'UPDATE orders SET file_name = $1 WHERE id = $2',
+        [finalFileName, orderId]
+      );
     }
 
     const bucketName = process.env.R2_BUCKET_NAME ? process.env.R2_BUCKET_NAME.trim() : '';
@@ -258,8 +258,8 @@ router.post('/files/upload-url', [
   } catch (err) {
     console.error("R2 Upload URL Error Detail:", err);
     // Explicitly returning the actual error message to the frontend for diagnostics
-    res.status(500).json({ 
-      message: `Generating upload URL failed: ${err.message}` 
+    res.status(500).json({
+      message: `Generating upload URL failed: ${err.message}`
     });
   }
 });
@@ -279,7 +279,7 @@ router.get('/files/history', auth, async (req, res) => {
 
     const mappedHistory = historyRes.rows.map(row => {
       // Logic for status mapping
-      let displayStatus = 'in_queue'; 
+      let displayStatus = 'in_queue';
       if (row.status === 'printed' || row.deleted_at) {
         displayStatus = 'completed';
       } else if (row.status === 'failed') {

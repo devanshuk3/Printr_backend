@@ -48,7 +48,7 @@ const cleanupOldFiles = async () => {
           'UPDATE uploaded_files SET deleted_at = NOW() WHERE id = ANY($1)',
           [ids]
         );
-        
+
         console.log(`[Cleanup] Successfully deleted and marked ${batch.length} files.`);
       } catch (err) {
         console.error(`[Cleanup] Error deleting batch:`, err.message);
@@ -81,13 +81,13 @@ const cleanupDatabaseHistory = async () => {
       DELETE FROM orders 
       WHERE created_at <= NOW() - INTERVAL '3 hours'
     `);
-    
+
     // 3. Absolute 10-hour purge for everything (Queue limit)
     const absoluteRes = await db.supabaseQuery(`
       DELETE FROM uploaded_files 
       WHERE uploaded_at <= NOW() - INTERVAL '10 hours'
     `);
-    
+
     console.log(`[Cleanup] purged ${historyRes.rowCount || 0} history, ${orderRes.rowCount || 0} orders, and ${absoluteRes.rowCount || 0} expired queue items.`);
   } catch (err) {
     console.error('[Cleanup] Error in cleanupDatabaseHistory:', err.message);
@@ -106,7 +106,7 @@ const cleanupCompletedJobs = async () => {
       WHERE status = 'printed' 
       AND deleted_at IS NULL
     `);
-    
+
     if (result.rows.length === 0) return;
 
     const bucketName = process.env.R2_BUCKET_NAME;
@@ -141,11 +141,11 @@ const cleanupCompletedJobs = async () => {
 // Start Background Tasks
 const startCleanupTask = () => {
   console.log('[Cleanup] Initializing specialized scheduled tasks...');
-  
+
   // Initial runs
-  cleanupOldFiles().catch(() => {});
-  cleanupCompletedJobs().catch(() => {});
-  cleanupDatabaseHistory().catch(() => {});
+  cleanupOldFiles().catch(() => { });
+  cleanupCompletedJobs().catch(() => { });
+  cleanupDatabaseHistory().catch(() => { });
 
   // Recurring schedules
   // 1. Files/Queue Cleanup: Check for expired (10h) files/records every hour
@@ -153,25 +153,25 @@ const startCleanupTask = () => {
     console.log(`[Cleanup] Starting 10-hour queue/file check...`);
     await cleanupOldFiles();
   });
-  
+
   // 2. History Purge: Delete DB records older than 3 hours, every 30 minutes
   cron.schedule('*/30 * * * *', async () => {
     console.log(`[Cleanup] Starting history purge (3h policy)...`);
     await cleanupDatabaseHistory();
   });
-  
+
   // 3. STORAGE Immediate Clean: Delete printed files from R2 every 10 minutes
   cron.schedule('*/10 * * * *', async () => {
     console.log(`[Cleanup] Starting immediate printed-file storage removal...`);
     await cleanupCompletedJobs();
   });
-  
+
   console.log('[Cleanup] Scheduled: Queue Purge (1h), History Purge (30m), Printed-Storage (10m).');
 };
 
-module.exports = { 
-  startCleanupTask, 
-  cleanupOldFiles, 
-  cleanupDatabaseHistory, 
-  cleanupCompletedJobs 
+module.exports = {
+  startCleanupTask,
+  cleanupOldFiles,
+  cleanupDatabaseHistory,
+  cleanupCompletedJobs
 };
