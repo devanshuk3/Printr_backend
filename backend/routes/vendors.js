@@ -268,11 +268,12 @@ router.post('/files/upload-url', [
 router.get('/files/history', auth, async (req, res) => {
   try {
     const historyRes = await db.supabaseQuery(
-      `SELECT f.file_name, f.uploaded_at, f.status, f.deleted_at, v.shop_name
-       FROM uploaded_files f
-       LEFT JOIN vendors v ON LOWER(f.vendor_id) = LOWER(v.vendor_id)
-       WHERE f.user_id = $1 AND f.file_name NOT LIKE '%.json'
-       ORDER BY f.uploaded_at DESC
+      `SELECT o.file_name, o.created_at as uploaded_at, o.status, f.deleted_at, v.shop_name
+       FROM orders o
+       LEFT JOIN uploaded_files f ON o.file_name = f.file_name
+       LEFT JOIN vendors v ON LOWER(o.vendor_id) = LOWER(v.vendor_id)
+       WHERE o.user_id = $1 AND o.file_name NOT LIKE '%.json'
+       ORDER BY o.created_at DESC
        LIMIT 50`,
       [req.user.id]
     );
@@ -280,10 +281,14 @@ router.get('/files/history', auth, async (req, res) => {
     const mappedHistory = historyRes.rows.map(row => {
       // Logic for status mapping
       let displayStatus = 'in_queue';
-      if (row.status === 'printed' || row.deleted_at) {
+      
+      // Sync from orders table status column
+      if (row.status === 'completed' || row.status === 'printed' || row.deleted_at) {
         displayStatus = 'completed';
-      } else if (row.status === 'failed') {
+      } else if (row.status === 'failed' || row.status === 'cancelled') {
         displayStatus = 'failed';
+      } else if (row.status === 'pending') {
+        displayStatus = 'in_queue';
       }
 
       // Format date/time

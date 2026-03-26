@@ -29,21 +29,21 @@ const LoginPage = () => {
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
- 
+
   const promptAsync = async () => {
     try {
       setLoading(true);
-      
+
       // Ensure play services are available
       await GoogleSignin.hasPlayServices();
-      
+
       // A small delay helps avoid 'Current activity is null' errors in some React Native versions
       // by ensuring the activity is correctly attached after any component state changes.
       await new Promise(resolve => setTimeout(resolve, 300));
 
       // Force account selection by signing out first to show the picker
-      try { await GoogleSignin.signOut(); } catch (e) {}
-      
+      try { await GoogleSignin.signOut(); } catch (e) { }
+
       const userInfo = await GoogleSignin.signIn();
       if (userInfo.data?.idToken) {
         handleGoogleLogin(userInfo.data.idToken);
@@ -87,7 +87,7 @@ const LoginPage = () => {
 
       setSharedFullName(data.user.fullName);
       await saveAuthData(data.token, data.user);
-      
+
       if (data.isNewUser) {
         router.replace({ pathname: "/home", params: { isNewUser: 'true' } } as any);
       } else {
@@ -100,10 +100,10 @@ const LoginPage = () => {
       setLoading(false);
     }
   };
- 
+
   const handleLogin = async () => {
     const trimmedIdentifier = identifier.trim();
-    
+
     if (!trimmedIdentifier || !password.trim()) {
       Alert.alert("Error", "Please fill in both email/username and password");
       return;
@@ -129,7 +129,7 @@ const LoginPage = () => {
 
       const contentType = response.headers.get("content-type");
       let data;
-      
+
       if (contentType && contentType.includes("application/json")) {
         data = await response.json();
       } else {
@@ -143,7 +143,7 @@ const LoginPage = () => {
 
       // Successfully logged in
       setSharedFullName(data.user.fullName);
-      
+
       // Save session to persistent storage
       await saveAuthData(data.token, {
         id: data.user.id,
@@ -151,7 +151,7 @@ const LoginPage = () => {
         email: data.user.email,
         username: data.user.username
       });
-      
+
       router.replace("/home");
     } catch (error: any) {
       console.error("Login detail error:", error);
@@ -240,8 +240,8 @@ const LoginPage = () => {
           </View>
 
           {/* Google Button */}
-          <TouchableOpacity 
-            style={[styles.googleButton, loading && { opacity: 0.7 }]} 
+          <TouchableOpacity
+            style={[styles.googleButton, loading && { opacity: 0.7 }]}
             activeOpacity={0.85}
             onPress={promptAsync}
             disabled={loading}
@@ -263,15 +263,15 @@ const LoginPage = () => {
           <View style={styles.legalRow}>
             <Text style={styles.legalText}>
               By logging in, you agree to our{"\n"}
-              <Text 
-                style={styles.legalLink} 
+              <Text
+                style={styles.legalLink}
                 onPress={() => Linking.openURL(`${API_URL.replace('/api', '')}/docs/terms-conditions.txt`)}
               >
                 Terms & Conditions
               </Text>
               {" and "}
-              <Text 
-                style={styles.legalLink} 
+              <Text
+                style={styles.legalLink}
                 onPress={() => Linking.openURL(`${API_URL.replace('/api', '')}/docs/privacy-policy.txt`)}
               >
                 Privacy Policy

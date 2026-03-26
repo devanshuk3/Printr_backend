@@ -41,12 +41,6 @@ import {
   Eye,
 } from "lucide-react-native";
 
-// ─── Data ────────────────────────────────────────────────────────────────────
-
-// History data will be fetched dynamically from the backend
-
-// Lucide icons are imported directly, so we don't need the local icon components
-
 export default function HomePage() {
   const router = useRouter();
   const [vendorId, setVendorId] = useState("");
