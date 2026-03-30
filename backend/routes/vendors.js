@@ -277,11 +277,11 @@ router.get('/files/history', auth, async (req, res) => {
        LIMIT 50`,
       [req.user.id]
     );
-    
+
     const mappedHistory = historyRes.rows.map(row => {
       // Logic for status mapping
       let displayStatus = 'in_queue';
-      
+
       // Sync from orders table status column
       if (row.status === 'completed' || row.status === 'printed' || row.deleted_at) {
         displayStatus = 'completed';
