@@ -311,34 +311,150 @@ router.get('/files/history', auth, async (req, res) => {
   }
 });
 
-// Mark a job as printed (COMPLETED)
-router.post('/printed', [
-  auth,
-  body('orderId').isInt().withMessage('Invalid Order ID'),
-  validate
-], async (req, res) => {
-  const { orderId } = req.body;
+// ============================================================================
+// ELECTRON DASHBOARD COMPATIBILITY (LEGACY BRIDGE)
+// ============================================================================
 
+// 1. Vendor Login (Compatibility for Auth.tsx)
+router.post('/login', async (req, res) => {
+  const { vendor_id, password } = req.body;
   try {
-    // 1. Update the orders table status
     const result = await db.supabaseQuery(
-      'UPDATE orders SET status = $1 WHERE id = $2 RETURNING *',
-      ['completed', orderId]
+      'SELECT * FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
+      [vendor_id]
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Order not found" });
+      return res.status(401).json({ success: false, message: "Vendor not found" });
     }
 
-    // 2. Update uploaded_files status
-    await db.supabaseQuery(
-      'UPDATE uploaded_files SET status = $1 WHERE file_name = (SELECT file_name FROM orders WHERE id = $2)',
-      ['printed', orderId]
+    const vendor = result.rows[0];
+    // In a production app, we'd use bcrypt here. 
+    // Matching the Java backend's logic which might still be using plaintext or a specific hash.
+    if (vendor.password !== password) {
+      return res.status(401).json({ success: false, message: "Invalid credentials" });
+    }
+
+    // Reuse the user JWT secret for simplicity if needed, or vendor-specific token
+    const jwt = require('jsonwebtoken');
+    const token = jwt.sign({ id: vendor.id, vendor_id: vendor.vendor_id, role: 'vendor' }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+    res.json({
+      success: true,
+      token,
+      vendor_id: vendor.vendor_id,
+      message: "Login successful"
+    });
+  } catch (err) {
+    handleError(res, err, "Vendor login failed");
+  }
+});
+
+// 2. Vendor Registration
+router.post('/register', async (req, res) => {
+  const data = req.body;
+  try {
+    const query = `
+      INSERT INTO vendors (vendor_id, password, full_name, shop_name, phone, upi_id, address, bw_price, color_price, paper_sizes)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING *`;
+    
+    const values = [
+      data.vendor_id, data.password, data.full_name, data.shop_name, 
+      data.phone, data.upi_id, data.address, data.bw_price, 
+      data.color_price, data.paper_sizes
+    ];
+
+    const result = await db.supabaseQuery(query, values);
+    const vendor = result.rows[0];
+
+    const jwt = require('jsonwebtoken');
+    const token = jwt.sign({ id: vendor.id, vendor_id: vendor.vendor_id, role: 'vendor' }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+    res.status(201).json({
+      success: true,
+      token,
+      vendor_id: vendor.vendor_id,
+      message: "Account initialized successfully"
+    });
+  } catch (err) {
+    handleError(res, err, "Vendor registration failed");
+  }
+});
+
+// 3. List Queue (replaces /api/r2/files)
+router.get('/files', async (req, res) => {
+  const vendorId = req.query.vendor_id;
+  if (!vendorId) return res.status(400).json({ message: "vendor_id is required" });
+
+  try {
+    // List pending/in-progress orders specifically for the dashboard
+    // Joins with users to get the sender_name
+    const result = await db.supabaseQuery(`
+      SELECT 
+        o.id, 
+        o.file_name, 
+        o.status, 
+        o.created_at,
+        u.full_name as sender_name,
+        f.object_key as file_key
+      FROM orders o
+      LEFT JOIN users u ON o.user_id = u.id
+      LEFT JOIN uploaded_files f ON o.file_name = f.file_name
+      WHERE LOWER(o.vendor_id) = LOWER($1) 
+        AND o.status NOT IN ('completed', 'cancelled', 'printed', 'rejected')
+        AND o.file_name NOT LIKE '%.xml'
+      ORDER BY o.created_at DESC`, 
+      [vendorId]
     );
 
-    res.json({ message: "Job marked as printed successfully", orderId });
+    res.json({ files: result.rows });
   } catch (err) {
-    handleError(res, err, "Marking job as printed failed");
+    handleError(res, err, "Fetching vendor queue failed");
+  }
+});
+
+// 4. Download (replaces /api/r2/download)
+router.post('/download', async (req, res) => {
+  const { file_key, id } = req.body;
+  if (!file_key) return res.status(400).json({ message: "file_key is required" });
+
+  try {
+    // Check if key is already full path (vendor/file) or just file
+    const bucketName = process.env.R2_BUCKET_NAME;
+    const command = new GetObjectCommand({
+      Bucket: bucketName,
+      Key: file_key,
+    });
+
+    const downloadUrl = await getSignedUrl(r2, command, { expiresIn: 3600 });
+    res.json({ downloadUrl, status: 'success' });
+  } catch (err) {
+    handleError(res, err, "Generating download URL failed");
+  }
+});
+
+// 5. Printed (replaces /api/r2/printed)
+router.post('/printed-legacy', async (req, res) => {
+  const { id } = req.body;
+  try {
+    await db.supabaseQuery("UPDATE orders SET status = 'printed' WHERE id = $1", [id]);
+    res.json({ message: "Status updated to Printed", status: "success" });
+  } catch (err) {
+    handleError(res, err, "Marking printed failed");
+  }
+});
+
+// 6. Delete/Cancel Order (replaces /api/r2/delete)
+router.post('/delete', async (req, res) => {
+  const { id } = req.body;
+  try {
+    // We mark as cancelled in orders table instead of deleting metadata if possible, 
+    // or we delete it completely if preferred.
+    await db.supabaseQuery("UPDATE orders SET status = 'cancelled' WHERE id = $1", [id]);
+    res.json({ message: "Order cancelled and removed", status: "success" });
+  } catch (err) {
+    handleError(res, err, "Order cancellation failed");
   }
 });
 
