@@ -114,43 +114,48 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, async () => {
-  console.log(`Server started on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
-  
-  // 1. Ensure DB integrity
-  await ensureTables();
-
-  // 2. Start scheduled tasks
-  startCleanupTask();
-
-  // 3. Keep-alive mechanism to prevent Render from spinning down
-  const KEEP_ALIVE_URL = process.env.KEEP_ALIVE_URL;
-  const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER;
-
-  if (KEEP_ALIVE_URL && isProduction) {
-    console.log(`[Keep-Alive] Initializing health pinger to ${KEEP_ALIVE_URL}...`);
+// Only start the server if this file is run directly, not when required as a module
+if (require.main === module) {
+  app.listen(PORT, async () => {
+    console.log(`Server started on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
     
-    const ping = () => {
-      const protocol = KEEP_ALIVE_URL.startsWith('https') ? https : http;
-      
-      protocol.get(KEEP_ALIVE_URL, (res) => {
-        res.on('data', () => {});
-        res.on('end', () => {
-          if (res.statusCode === 200) {
-            console.log(`[Keep-Alive] Heartbeat success at ${new Date().toLocaleTimeString()}`);
-          } else {
-            console.warn(`[Keep-Alive] Heartbeat status: ${res.statusCode}`);
-          }
-        });
-      }).on('error', (err) => {
-        console.error('[Keep-Alive] Heartbeat failed:', err.message);
-      });
-    };
+    // 1. Ensure DB integrity
+    await ensureTables();
 
-    // Initial and periodic pings
-    ping();
-    setInterval(ping, 5 * 60 * 1000); 
-  } else {
-    console.log('[Keep-Alive] Self-pinging disabled (Local dev or missing URL).');
-  }
-});
+    // 2. Start scheduled tasks
+    startCleanupTask();
+
+    // 3. Keep-alive mechanism to prevent Render from spinning down
+    const KEEP_ALIVE_URL = process.env.KEEP_ALIVE_URL;
+    const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER;
+
+    if (KEEP_ALIVE_URL && isProduction) {
+      console.log(`[Keep-Alive] Initializing health pinger to ${KEEP_ALIVE_URL}...`);
+      
+      const ping = () => {
+        const protocol = KEEP_ALIVE_URL.startsWith('https') ? https : http;
+        
+        protocol.get(KEEP_ALIVE_URL, (res) => {
+          res.on('data', () => {});
+          res.on('end', () => {
+            if (res.statusCode === 200) {
+              console.log(`[Keep-Alive] Heartbeat success at ${new Date().toLocaleTimeString()}`);
+            } else {
+              console.warn(`[Keep-Alive] Heartbeat status: ${res.statusCode}`);
+            }
+          });
+        }).on('error', (err) => {
+          console.error('[Keep-Alive] Heartbeat failed:', err.message);
+        });
+      };
+
+      // Initial and periodic pings
+      ping();
+      setInterval(ping, 5 * 60 * 1000); 
+    } else {
+      console.log('[Keep-Alive] Self-pinging disabled (Local dev or missing URL).');
+    }
+  });
+}
+
+module.exports = app;

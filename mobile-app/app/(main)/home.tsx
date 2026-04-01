@@ -18,7 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
-import { clearAuthData, saveAuthData, getAuthData, UserData } from "../../utils/authStorage";
+import { clearAuthData, saveAuthData, getAuthData, UserData, saveLocalHistory, getLocalHistory } from "../../utils/authStorage";
 import * as IntentLauncher from "expo-intent-launcher";
 import * as Sharing from "expo-sharing";
 import { FilePreviewModal } from "../../components/modals/FilePreviewModal";
@@ -72,6 +72,12 @@ export default function HomePage() {
         setSharedFullName(user.fullName);
         setNewUsername(user.username);
         
+        // Load local history
+        const localHistory = await getLocalHistory();
+        if (localHistory && localHistory.length > 0) {
+          setHistory(localHistory.slice(0, 4));
+        }
+
         // Show username modal ONLY if isNewUser param is present
         if (params.isNewUser === 'true') {
           setIsUsernameModalVisible(true);
@@ -125,7 +131,6 @@ export default function HomePage() {
     return total;
   };
 
-  // Fetch print history from backend
   const fetchHistory = useCallback(async () => {
     try {
       setIsLoadingHistory(true);
@@ -137,9 +142,31 @@ export default function HomePage() {
       });
 
       if (response.ok) {
-        const data = await response.json();
-        // Limit to 4 files only locally as per user request
-        setHistory(Array.isArray(data) ? data.slice(0, 4) : []);
+        const backendData = await response.json();
+        const currentLocal = await getLocalHistory();
+        
+        const backendDataValid = Array.isArray(backendData) ? backendData : [];
+        const localDataValid = Array.isArray(currentLocal) ? currentLocal : [];
+
+        // Map backend items for lookup
+        const backendMap = new Map(backendDataValid.map(item => [item.fileName, item]));
+        
+        // Start with backend items (latest source of truth for existing orders)
+        let mergedHistory = [...backendDataValid];
+
+        // Add items from local history that are missing from backend (mark as cancelled)
+        localDataValid.forEach(lItem => {
+          if (!backendMap.has(lItem.fileName)) {
+            // If it was missing from backend, it means it's cancelled/removed
+            const cancelledItem = lItem.status === 'failed' ? lItem : { ...lItem, status: 'failed' };
+            mergedHistory.push(cancelledItem);
+          }
+        });
+
+        // Limit to 50 items for storage, but display 4 locally
+        const truncatedHistory = mergedHistory.slice(0, 50);
+        setHistory(truncatedHistory.slice(0, 4));
+        await saveLocalHistory(truncatedHistory);
       }
     } catch (error) {
       console.error("Error fetching history:", error);
@@ -844,7 +871,12 @@ export default function HomePage() {
                 <View style={styles.historyActions}>
                   <TouchableOpacity 
                     style={styles.viewHistoryBtn}
-                    onPress={() => Alert.alert("Job Status", `File "${item.fileName}" is currently ${item.status === 'completed' ? 'printed' : 'on the cloud'}.`)}
+                    onPress={() => {
+                      let message = `File "${item.fileName}" is currently on the cloud.`;
+                      if (item.status === 'completed') message = `File "${item.fileName}" has been printed.`;
+                      if (item.status === 'failed') message = `File "${item.fileName}" was removed or cancelled.`;
+                      Alert.alert("Job Status", message);
+                    }}
                   >
                     <Eye size={18} color="#64748b" />
                   </TouchableOpacity>

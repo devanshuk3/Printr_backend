@@ -2,6 +2,7 @@ import * as SecureStore from 'expo-secure-store';
 
 const TOKEN_KEY = 'user_token';
 const USER_KEY = 'user_data';
+const HISTORY_KEY = 'print_history';
 
 export interface UserData {
   id: number;
@@ -38,7 +39,26 @@ export const clearAuthData = async () => {
   try {
     await SecureStore.deleteItemAsync(TOKEN_KEY);
     await SecureStore.deleteItemAsync(USER_KEY);
+    await SecureStore.deleteItemAsync(HISTORY_KEY);
   } catch (error) {
     console.error('Error clearing auth data:', error);
+  }
+};
+
+export const saveLocalHistory = async (history: any[]) => {
+  try {
+    await SecureStore.setItemAsync(HISTORY_KEY, JSON.stringify(history));
+  } catch (error) {
+    console.error('Error saving local history:', error);
+  }
+};
+
+export const getLocalHistory = async () => {
+  try {
+    const data = await SecureStore.getItemAsync(HISTORY_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch (error) {
+    console.error('Error getting local history:', error);
+    return [];
   }
 };
