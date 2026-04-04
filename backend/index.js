@@ -37,6 +37,8 @@ const ensureTables = async () => {
       address TEXT,
       bw_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
       color_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+      has_bw_printer BOOLEAN DEFAULT TRUE,
+      has_color_printer BOOLEAN DEFAULT FALSE,
       paper_sizes VARCHAR(255),
       pages_printed INTEGER DEFAULT 0,
       platform_fee DECIMAL(10, 2) DEFAULT 0.00,
