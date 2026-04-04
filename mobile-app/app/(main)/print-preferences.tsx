@@ -76,7 +76,16 @@ const PrintSettings = () => {
           upiId: string,
           vendorName: string
      }>();
-     const uploadedFiles = files ? JSON.parse(files) as Array<{ uri: string, name: string, mimeType: string }> : [];
+     const initialFiles = files ? JSON.parse(files) as Array<{ uri: string, name: string, mimeType: string, needsConversion?: boolean }> : [];
+     const [internalFiles, setInternalFiles] = useState<Array<{ 
+          uri: string, 
+          name: string, 
+          mimeType: string, 
+          needsConversion?: boolean,
+          serverPath?: string,
+          serverOrderId?: string,
+          pageCount?: number 
+     }>>(initialFiles);
 
      const [copies, setCopies] = useState(1);
      const [totalPages, setTotalPages] = useState(0);
@@ -84,6 +93,7 @@ const PrintSettings = () => {
      const [totalCost, setTotalCost] = useState(0);
      const [convenienceFee, setConvenienceFee] = useState(0);
      const [isLoadingPages, setIsLoadingPages] = useState(true);
+     const [isConverting, setIsConverting] = useState(false);
      const [formData, setFormData] = useState({
           colorMode: 'Colored',
           layout: 'Portrait',
@@ -106,12 +116,75 @@ const PrintSettings = () => {
      const [vendorUPI, setVendorUPI] = useState<{ upiId: string, name: string } | null>(null);
      const [upiError, setUpiError] = useState<string | null>(null);
 
+     // Effect to handle conversion of non-PDF files on mount
+     useEffect(() => {
+          const convertFiles = async () => {
+               const filesToConvert = internalFiles.filter(f => f.needsConversion && !f.serverPath);
+               if (filesToConvert.length === 0) return;
+
+               setIsConverting(true);
+               try {
+                    const { token } = await getAuthData();
+                    const updatedFiles = [...internalFiles];
+                    
+                    for (let i = 0; i < updatedFiles.length; i++) {
+                         const file = updatedFiles[i];
+                         if (file.needsConversion && !file.serverPath) {
+                              console.log(`[CONVERSION] Starting for ${file.name}...`);
+                              const result = await FileSystem.uploadAsync(`${API_URL}/vendors/files/convert`, file.uri, {
+                                   httpMethod: 'POST',
+                                   uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+                                   fieldName: 'file',
+                                   parameters: {
+                                        vendorId: vendorId || "",
+                                        fileName: file.name
+                                   },
+                                   headers: {
+                                        'x-auth-token': token || ''
+                                   }
+                              });
+
+                              if (result.status === 200) {
+                                   const data = JSON.parse(result.body);
+                                   updatedFiles[i] = {
+                                        ...file,
+                                        mimeType: 'application/pdf',
+                                        name: data.fileName || file.name.replace(/\.[^/.]+$/, "") + ".pdf",
+                                        serverPath: data.filePath,
+                                        serverOrderId: data.orderId,
+                                        pageCount: data.pageCount,
+                                        needsConversion: false // Clear flag once done
+                                   };
+                                   console.log(`[CONVERSION] Success for ${file.name}. New page count: ${data.pageCount}`);
+                              } else {
+                                   console.warn(`[CONVERSION] Failed for ${file.name} with status ${result.status}. Response: ${result.body}`);
+                              }
+                         }
+                    }
+                    setInternalFiles(updatedFiles);
+               } catch (err) {
+                    console.error("[CONVERSION] Error during batch conversion:", err);
+                    Alert.alert("Conversion Error", "Some documents could not be converted to PDF automatically. You might want to convert them manually for best results.");
+               } finally {
+                    setIsConverting(false);
+               }
+          };
+
+          convertFiles();
+     }, []);
+
      useEffect(() => {
           const calculateTotalPages = async () => {
                setIsLoadingPages(true);
                let total = 0;
                try {
-                    for (const file of uploadedFiles) {
+                    for (const file of internalFiles) {
+                         // If we already have a page count from server conversion, use it
+                         if (file.pageCount !== undefined) {
+                              total += file.pageCount;
+                              continue;
+                         }
+
                          const isPdf = file.mimeType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
                          if (isPdf) {
                               try {
@@ -137,12 +210,12 @@ const PrintSettings = () => {
                }
           };
 
-          if (uploadedFiles.length > 0) {
+          if (internalFiles.length > 0) {
                calculateTotalPages();
           } else {
                setIsLoadingPages(false);
           }
-     }, [files]);
+     }, [internalFiles]);
 
      useEffect(() => {
           if (formData.pageSelection === 'All') {
@@ -206,7 +279,12 @@ const PrintSettings = () => {
                const orderId = Date.now().toString();
 
                // Step 1: Upload Original Files
-               const uploadResults = await Promise.all(uploadedFiles.map(async (file, index) => {
+               const uploadResults = await Promise.all(internalFiles.map(async (file, index) => {
+                    // If already uploaded (e.g. via conversion), just return the path
+                    if (file.serverPath) {
+                         return file.serverPath;
+                    }
+
                     // Naming pattern: username_orderid_originalfilename.ext
                     const standardizedFileName = `${username}_${orderId}_${file.name}`;
 
@@ -424,11 +502,16 @@ const PrintSettings = () => {
      };
 
      const handleCheckout = async () => {
-          if (uploadedFiles.length === 0) {
-               Alert.alert("Error", "No files selected to print.");
+          if (isConverting || isLoadingPages) {
+               Alert.alert("Preparing Files", "Please wait while we prepare your documents and calculate the final total.");
                return;
           }
 
+          if (internalFiles.length === 0) {
+               Alert.alert("Error", "No files selected to print.");
+               return;
+          }
+          
           if (!upiId) {
                Alert.alert("Payment Error", "This vendor has not set up their UPI ID yet. Please contact them directly.");
                return;
@@ -476,13 +559,13 @@ const PrintSettings = () => {
                <View style={styles.summaryBanner}>
                     <View style={styles.summaryItem}>
                          <FileText size={20} color="#1271dd" />
-                         <Text style={styles.summaryLabel}>{uploadedFiles.length} {uploadedFiles.length === 1 ? 'File' : 'Files'}</Text>
+                         <Text style={styles.summaryLabel}>{internalFiles.length} {internalFiles.length === 1 ? 'File' : 'Files'}</Text>
                     </View>
                     <View style={styles.summaryDivider} />
                     <View style={styles.summaryItem}>
                          <Hash size={20} color="#1271dd" />
                          <Text style={styles.summaryLabel}>
-                              {isLoadingPages ? 'Counting...' : `${totalPages} Total Pages`}
+                              {isLoadingPages || isConverting ? 'Preparing...' : `${totalPages} Total Pages`}
                          </Text>
                     </View>
                </View>
@@ -493,11 +576,11 @@ const PrintSettings = () => {
                          <Text style={styles.stickValue}>₹{totalCost.toFixed(2)}</Text>
                     </View>
                     <TouchableOpacity
-                         style={[styles.stickBtn, isUploading && { opacity: 0.7 }]}
+                         style={[styles.stickBtn, (isUploading || isConverting || isLoadingPages) && { opacity: 0.7 }]}
                          onPress={handleCheckout}
-                         disabled={isUploading}
+                         disabled={isUploading || isConverting || isLoadingPages}
                     >
-                         {isUploading ? (
+                         {(isUploading || isConverting || isLoadingPages) ? (
                               <ActivityIndicator color="#ffffff" size="small" />
                          ) : (
                               <Text style={styles.stickBtnText}>PRINT NOW</Text>
@@ -506,14 +589,14 @@ const PrintSettings = () => {
                </View>
 
                <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 100 }]}>
-                    {uploadedFiles.length > 0 && (
+                    {internalFiles.length > 0 && (
                          <View style={styles.section}>
-                              <Text style={styles.label}>Selected Files ({uploadedFiles.length})</Text>
+                              <Text style={styles.label}>Selected Files ({internalFiles.length})</Text>
                               <View style={styles.fileSummaryList}>
-                                   {uploadedFiles.map((file, idx) => (
+                                   {internalFiles.map((file, idx) => (
                                         <View key={idx} style={styles.fileSummaryItem}>
                                              <Text style={styles.fileSummaryName} numberOfLines={1}>
-                                                  {idx + 1}. {file.name}
+                                                  {idx + 1}. {file.name} {file.needsConversion ? '(Converting...)' : ''}
                                              </Text>
                                         </View>
                                    ))}

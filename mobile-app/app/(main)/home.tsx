@@ -52,7 +52,7 @@ export default function HomePage() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [totalPages, setTotalPages] = useState<number>(0);
   const [isUploading, setIsUploading] = useState(false);
-  
+
   // Profile State
   const params = useLocalSearchParams();
   const [userData, setUserData] = useState<UserData | null>(null);
@@ -71,7 +71,7 @@ export default function HomePage() {
         setUserData(user);
         setSharedFullName(user.fullName);
         setNewUsername(user.username);
-        
+
         // Load local history
         const localHistory = await getLocalHistory();
         if (localHistory && localHistory.length > 0) {
@@ -82,7 +82,7 @@ export default function HomePage() {
         if (params.isNewUser === 'true') {
           setIsUsernameModalVisible(true);
         }
-        
+
         // Initialize offset from user data
         if (user.profileSeedOffset !== undefined) {
           setProfileSeedOffset(user.profileSeedOffset);
@@ -144,13 +144,13 @@ export default function HomePage() {
       if (response.ok) {
         const backendData = await response.json();
         const currentLocal = await getLocalHistory();
-        
+
         const backendDataValid = Array.isArray(backendData) ? backendData : [];
         const localDataValid = Array.isArray(currentLocal) ? currentLocal : [];
 
         // Map backend items for lookup
         const backendMap = new Map(backendDataValid.map(item => [item.fileName, item]));
-        
+
         // Start with backend items (latest source of truth for existing orders)
         let mergedHistory = [...backendDataValid];
 
@@ -235,9 +235,9 @@ export default function HomePage() {
         signal: controller.signal
       });
       clearTimeout(timeoutId);
-      
+
       const contentType = response.headers.get("content-type");
-      
+
       if (!contentType || !contentType.includes("application/json")) {
         const text = await response.text();
         console.error("API returned non-JSON response:", text.substring(0, 200));
@@ -270,14 +270,14 @@ export default function HomePage() {
     }
   };
 
-  const robohashUrl = userData 
+  const robohashUrl = userData
     ? getRobohashUrl(userData.username || userData.id.toString(), profileSeedOffset)
     : null;
 
   const handleChangeProfileIcon = async () => {
     const newOffset = profileSeedOffset + 1;
     setProfileSeedOffset(newOffset);
-    
+
     // Persist Choice
     if (userData) {
       const { token } = await getAuthData();
@@ -293,18 +293,18 @@ export default function HomePage() {
       "Are you sure you want to log out?",
       [
         { text: "Cancel", style: "cancel" },
-        { 
-          text: "Log Out", 
+        {
+          text: "Log Out",
           style: "destructive",
           onPress: async () => {
-             try {
-                setIsProfileVisible(false);
-                await clearAuthData();
-                router.replace("/(auth)/login");
-             } catch (error) {
-                console.error("Logout error:", error);
-                router.replace("/(auth)/login");
-             }
+            try {
+              setIsProfileVisible(false);
+              await clearAuthData();
+              router.replace("/(auth)/login");
+            } catch (error) {
+              console.error("Logout error:", error);
+              router.replace("/(auth)/login");
+            }
           }
         }
       ]
@@ -317,31 +317,31 @@ export default function HomePage() {
       "Are you sure you want to delete your account? This action cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
-        { 
-          text: "Delete", 
+        {
+          text: "Delete",
           style: "destructive",
           onPress: async () => {
-             try {
-                const { token } = await getAuthData();
-                const response = await fetch(`${API_URL}/auth/account`, {
-                   method: 'DELETE',
-                   headers: {
-                      'x-auth-token': token || '',
-                   },
-                });
+            try {
+              const { token } = await getAuthData();
+              const response = await fetch(`${API_URL}/auth/account`, {
+                method: 'DELETE',
+                headers: {
+                  'x-auth-token': token || '',
+                },
+              });
 
-                if (response.ok) {
-                   await clearAuthData();
-                   setIsProfileVisible(false);
-                   router.replace("/(auth)/login");
-                } else {
-                   const data = await response.json();
-                   Alert.alert("Error", data.message || "Failed to delete account");
-                }
-             } catch (error) {
-                console.error("Delete account error:", error);
-                Alert.alert("Error", "An unexpected error occurred.");
-             }
+              if (response.ok) {
+                await clearAuthData();
+                setIsProfileVisible(false);
+                router.replace("/(auth)/login");
+              } else {
+                const data = await response.json();
+                Alert.alert("Error", data.message || "Failed to delete account");
+              }
+            } catch (error) {
+              console.error("Delete account error:", error);
+              Alert.alert("Error", "An unexpected error occurred.");
+            }
           }
         }
       ]
@@ -366,13 +366,13 @@ export default function HomePage() {
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         if (result.assets.length > 10) {
-           Alert.alert("Limit Reached", "You can only upload up to 10 files at a time.");
-           return;
+          Alert.alert("Limit Reached", "You can only upload up to 10 files at a time.");
+          return;
         }
         const filteredAssets = result.assets.filter(asset => {
           const mime = asset.mimeType?.toLowerCase() || "";
           const name = asset.name.toLowerCase();
-          
+
           // Explicitly block Videos if they somehow bypassed the picker filter
           if (mime.startsWith("video/") || name.endsWith(".mp4") || name.endsWith(".mov") || name.endsWith(".avi")) {
             return false;
@@ -387,24 +387,23 @@ export default function HomePage() {
 
         // --- Alert for Document Files ---
         const nonStandardFiles = filteredAssets.filter(asset => {
-           const mime = asset.mimeType?.toLowerCase() || "";
-           const name = asset.name.toLowerCase();
-           const isPdf = mime === "application/pdf" || name.endsWith(".pdf");
-           const isImage = mime.startsWith("image/");
-           const isPpt = mime.includes("presentation") || mime.includes("powerpoint") || name.endsWith(".ppt") || name.endsWith(".pptx");
-           return !isPdf && !isImage && !isPpt;
+          const mime = asset.mimeType?.toLowerCase() || "";
+          const name = asset.name.toLowerCase();
+          const isPdf = mime === "application/pdf" || name.endsWith(".pdf");
+          const isImage = mime.startsWith("image/");
+          const isPpt = mime.includes("presentation") || mime.includes("powerpoint") || name.endsWith(".ppt") || name.endsWith(".pptx");
+          return !isPdf && !isImage && !isPpt;
         });
 
         if (nonStandardFiles.length > 0) {
-           await new Promise(resolve => {
-              Alert.alert(
-                "Document Notice",
-                "DOCX and other office files will be converted to PDF. Please note that complex formatting, tables, or non-standard fonts may break during this process. We recommend converting them to PDF manually for absolute accuracy.",
-                [{ text: "Continue", onPress: resolve }]
-              );
-           });
+          await new Promise(resolve => {
+            Alert.alert(
+              "Document Notice",
+              "DOCX and other office files will be converted to PDF. Please note that complex formatting, tables, or non-standard fonts may break during this process. We recommend converting them to PDF manually for absolute accuracy.",
+              [{ text: "Continue", onPress: resolve }]
+            );
+          });
         }
-        // --------------------------------
 
         setIsUploading(true);
         const newFilesList = await Promise.all(filteredAssets.map(async (asset) => {
@@ -416,11 +415,11 @@ export default function HomePage() {
           const isPdf = fileMime === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
           const isImage = fileMime.startsWith("image/");
           const isPpt = fileMime.includes("presentation") || fileMime.includes("powerpoint") || fileName.toLowerCase().endsWith(".ppt") || fileName.toLowerCase().endsWith(".pptx");
-          
+
           let needsConversion = false;
           if (!isPdf && !isImage && !isPpt) {
-             needsConversion = true;
-             console.log(`[PRINT_CONVERSION] Requesting conversion for ${fileName}...`);
+            needsConversion = true;
+            console.log(`[PRINT_CONVERSION] Requesting conversion for ${fileName}...`);
           }
           // ---------------------------
 
@@ -443,11 +442,11 @@ export default function HomePage() {
         const updatedFiles = [...uploadedFiles, ...newFilesList];
         setUploadedFiles(updatedFiles);
         setHasUploaded(true);
-        
+
         // Automatically calculate pages for price preview
         const pages = await calculatePageCount(updatedFiles);
         setTotalPages(pages);
-        
+
         if (filteredAssets.length < result.assets.length) {
           Alert.alert("Notice", `Some files were excluded. Only PDF, Images, Word, PPT, and Excel are allowed.`);
         } else {
@@ -535,7 +534,7 @@ export default function HomePage() {
     }
     router.push({
       pathname: "/print-preferences",
-      params: { 
+      params: {
         files: JSON.stringify(uploadedFiles),
         vendorId: vendorId,
         bwPrice: verifiedVendor?.price_per_page?.toString() || "0",
@@ -565,9 +564,9 @@ export default function HomePage() {
             <View style={styles.usernameModal}>
               <View style={styles.usernameModalHeader}>
                 <View style={styles.usernameRobohashWrapper}>
-                  <Image 
-                    source={{ uri: getRobohashUrl(newUsername || "user", profileSeedOffset) }} 
-                    style={styles.usernameRobohash} 
+                  <Image
+                    source={{ uri: getRobohashUrl(newUsername || "user", profileSeedOffset) }}
+                    style={styles.usernameRobohash}
                   />
                 </View>
                 <Text style={styles.usernameModalTitle}>Choose your username</Text>
@@ -589,7 +588,7 @@ export default function HomePage() {
                   />
                 </View>
 
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={[styles.usernameSubmitBtn, usernameLoading && { opacity: 0.7 }]}
                   onPress={handleUpdateUsername}
                   disabled={usernameLoading}
@@ -630,7 +629,7 @@ export default function HomePage() {
                       <UserCircle size={100} color="#1271dd" />
                     )}
                   </View>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={styles.changeProfileIconBtn}
                     onPress={handleChangeProfileIcon}
                     activeOpacity={0.8}
@@ -665,15 +664,15 @@ export default function HomePage() {
                   </View>
                 </View>
 
-                <TouchableOpacity 
-                   style={styles.profileLogoutBtn}
-                   onPress={handleLogout}
+                <TouchableOpacity
+                  style={styles.profileLogoutBtn}
+                  onPress={handleLogout}
                 >
                   <LogOut size={20} color="#ffffff" />
                   <Text style={styles.profileLogoutText}>Log Out</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.profileDeleteBtn}
                   onPress={handleDeleteAccount}
                 >
@@ -701,14 +700,14 @@ export default function HomePage() {
             </Text>
             <View style={styles.headerIcons}>
               {userData?.username === "admin" && (
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={[styles.iconCircle, { backgroundColor: '#1271dd', borderColor: '#1271dd' }]}
                   onPress={() => router.push("/(admin)/vendors")}
                 >
                   <LayoutDashboard size={20} color="#ffffff" />
                 </TouchableOpacity>
               )}
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.profileIconCircle}
                 onPress={() => setIsProfileVisible(true)}
               >
@@ -739,15 +738,15 @@ export default function HomePage() {
 
                 // Persist to SecureStore so it survives navigations and restarts
                 if (normalizedText.trim()) {
-                  SecureStore.setItemAsync('saved_vendor_id', normalizedText.trim()).catch(() => {});
+                  SecureStore.setItemAsync('saved_vendor_id', normalizedText.trim()).catch(() => { });
                 } else {
-                  SecureStore.deleteItemAsync('saved_vendor_id').catch(() => {});
+                  SecureStore.deleteItemAsync('saved_vendor_id').catch(() => { });
                 }
               }}
             />
           </View>
-          <TouchableOpacity 
-            style={[styles.verifyButton, isVerifying && { opacity: 0.7 }]} 
+          <TouchableOpacity
+            style={[styles.verifyButton, isVerifying && { opacity: 0.7 }]}
             onPress={handleVerifyVendor}
             disabled={isVerifying}
             activeOpacity={0.85}
@@ -767,7 +766,7 @@ export default function HomePage() {
                   <Text style={styles.vendorPriceText}>₹{verifiedVendor.price_per_page}/page</Text>
                 </View>
               </View>
-              
+
               <View style={styles.pricingCalculator}>
                 <View style={styles.totalAmountContainerNoInput}>
                   <View style={styles.totalAmountLabelCol}>
@@ -870,8 +869,8 @@ export default function HomePage() {
         {/* ── Print History ── */}
         <View style={styles.section}>
           <TouchableOpacity onPress={fetchHistory} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-             <Text style={[styles.sectionTitleLeft, { marginBottom: 0 }]}>Print history</Text>
-             {isLoadingHistory && <RefreshCcw size={16} color="#1271dd" />}
+            <Text style={[styles.sectionTitleLeft, { marginBottom: 0 }]}>Print history</Text>
+            {isLoadingHistory && <RefreshCcw size={16} color="#1271dd" />}
           </TouchableOpacity>
 
           {history.length === 0 ? (
@@ -906,7 +905,7 @@ export default function HomePage() {
 
                 {/* Right: Actions & Status */}
                 <View style={styles.historyActions}>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={styles.viewHistoryBtn}
                     onPress={() => {
                       let message = `File "${item.fileName}" is currently on the cloud.`;

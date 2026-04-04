@@ -644,7 +644,9 @@ router.post('/files/convert', [
 
   try {
     // 1. Convert to PDF using mammoth + puppeteer
-    const pdfBuffer = await convertDocxToPdf(buffer);
+    console.log(`[ROUTE_CONVERT] Starting conversion for file: ${fileName}, size: ${buffer.length}`);
+    const { pdfBuffer, pageCount } = await convertDocxToPdf(buffer);
+    console.log(`[ROUTE_CONVERT] Conversion complete. Page count: ${pageCount}`);
 
     // 2. Determine paths for R2
     const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
@@ -679,8 +681,8 @@ router.post('/files/convert', [
 
     // 4. Create DB record for tracking
     const orderRes = await db.supabaseQuery(
-      'INSERT INTO orders (user_id, vendor_id, status, file_name) VALUES ($1, $2, $3, $4) RETURNING id',
-      [req.user.id, sanitizedVendorId, 'pending', finalFileName]
+      'INSERT INTO orders (user_id, vendor_id, status, file_name, page_count) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+      [req.user.id, sanitizedVendorId, 'pending', finalFileName, pageCount]
     );
     const orderIdValue = orderRes.rows[0].id;
 
@@ -697,7 +699,8 @@ router.post('/files/convert', [
       message: "File converted and uploaded successfully",
       fileName: finalFileName,
       filePath: filePath,
-      orderId: orderIdValue
+      orderId: orderIdValue,
+      pageCount: pageCount
     });
   } catch (err) {
     console.error('[Converter Endpoint Error]', err);
