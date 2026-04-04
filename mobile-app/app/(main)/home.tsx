@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { sharedFullName, setSharedFullName } from "../../utils/sharedState";
+import { countFilePages } from '../../utils/pageCounter';
 import {
   View,
   Text,
@@ -110,23 +111,8 @@ export default function HomePage() {
   const calculatePageCount = async (files: any[]) => {
     let total = 0;
     for (const file of files) {
-      const isPdf = file.mimeType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-      if (isPdf) {
-        try {
-          const content = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.UTF8 });
-          const countMatch = content.match(/\/Count\s+(\d+)/);
-          if (countMatch && countMatch[1]) {
-            total += parseInt(countMatch[1]);
-          } else {
-            const pageMatches = content.match(/\/Type\s*\/Page\b/g);
-            total += pageMatches ? pageMatches.length : 1;
-          }
-        } catch (e) {
-          total += 1;
-        }
-      } else {
-        total += 1;
-      }
+       // Files now come with pageCount pre-calculated from handleUpload
+       total += (file.pageCount || 1);
     }
     return total;
   };
@@ -385,43 +371,11 @@ export default function HomePage() {
           return;
         }
 
-        // --- Alert for Document Files ---
-        const nonStandardFiles = filteredAssets.filter(asset => {
-          const mime = asset.mimeType?.toLowerCase() || "";
-          const name = asset.name.toLowerCase();
-          const isPdf = mime === "application/pdf" || name.endsWith(".pdf");
-          const isImage = mime.startsWith("image/");
-          const isPpt = mime.includes("presentation") || mime.includes("powerpoint") || name.endsWith(".ppt") || name.endsWith(".pptx");
-          return !isPdf && !isImage && !isPpt;
-        });
-
-        if (nonStandardFiles.length > 0) {
-          await new Promise(resolve => {
-            Alert.alert(
-              "Document Notice",
-              "DOCX and other office files will be converted to PDF. Please note that complex formatting, tables, or non-standard fonts may break during this process. We recommend converting them to PDF manually for absolute accuracy.",
-              [{ text: "Continue", onPress: resolve }]
-            );
-          });
-        }
-
         setIsUploading(true);
         const newFilesList = await Promise.all(filteredAssets.map(async (asset) => {
           let fileName = asset.name;
           let fileUri = asset.uri;
           let fileMime = asset.mimeType || "application/octet-stream";
-
-          // -- FILE CONVERSION LOGIC --
-          const isPdf = fileMime === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
-          const isImage = fileMime.startsWith("image/");
-          const isPpt = fileMime.includes("presentation") || fileMime.includes("powerpoint") || fileName.toLowerCase().endsWith(".ppt") || fileName.toLowerCase().endsWith(".pptx");
-
-          let needsConversion = false;
-          if (!isPdf && !isImage && !isPpt) {
-            needsConversion = true;
-            console.log(`[PRINT_CONVERSION] Requesting conversion for ${fileName}...`);
-          }
-          // ---------------------------
 
           const destinationUri = (FileSystem.documentDirectory || "") + fileName;
 
@@ -431,11 +385,15 @@ export default function HomePage() {
             to: destinationUri,
           });
 
+          // PRE-CALCULATE PAGE COUNT HERE
+          const pageCount = await countFilePages(destinationUri, fileName);
+          console.log(`[Home] Pre-calculated ${fileName}: ${pageCount} pages`);
+
           return {
             uri: destinationUri,
             name: fileName,
             mimeType: fileMime,
-            needsConversion: needsConversion // Track this for later upload
+            pageCount: pageCount
           };
         }));
 
@@ -761,19 +719,17 @@ export default function HomePage() {
           {verifiedVendor && (
             <View style={styles.vendorInfoCard}>
               <View style={styles.vendorInfoHeader}>
-                <Text style={styles.vendorInfoName}>{verifiedVendor.name}</Text>
-                <View style={styles.vendorPriceBadge}>
-                  <Text style={styles.vendorPriceText}>₹{verifiedVendor.price_per_page}/page</Text>
+                <View style={{ flex: 1 }}>
+                   <Text style={styles.vendorInfoName}>{verifiedVendor.name}</Text>
+                   <Text style={styles.vendorInfoPhone}>{verifiedVendor.phone}</Text>
                 </View>
-              </View>
-
-              <View style={styles.pricingCalculator}>
-                <View style={styles.totalAmountContainerNoInput}>
-                  <View style={styles.totalAmountLabelCol}>
-                    <Text style={styles.pricingLabel}>Estimated Pages</Text>
-                    <Text style={styles.pricingSubLabel}>Based on uploaded files</Text>
+                <View style={styles.vendorPriceBadgeContainer}>
+                  <View style={styles.vendorPriceBadge}>
+                    <Text style={styles.vendorPriceText}>B&W: ₹{verifiedVendor.price_per_page}</Text>
                   </View>
-                  <Text style={styles.totalAmountValueLarge}>₹{(totalPages * verifiedVendor.price_per_page).toFixed(2)}</Text>
+                  <View style={[styles.vendorPriceBadge, { backgroundColor: '#fff7ed', borderColor: '#ffedd5' }]}>
+                    <Text style={[styles.vendorPriceText, { color: '#ea580c' }]}>Color: ₹{verifiedVendor.color_price}</Text>
+                  </View>
                 </View>
               </View>
             </View>
@@ -1061,16 +1017,28 @@ const styles = StyleSheet.create({
     color: "#2e3563",
     flex: 1,
   },
+  vendorPriceBadgeContainer: {
+    flexDirection: "row",
+    gap: 8,
+  },
   vendorPriceBadge: {
     backgroundColor: "#eef6ff",
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#e3f0ff",
   },
   vendorPriceText: {
-    fontSize: 13,
-    fontWeight: "600",
+    fontSize: 12,
+    fontWeight: "700",
     color: "#1271dd",
+  },
+  vendorInfoPhone: {
+    fontSize: 13,
+    color: "#94a3b8",
+    marginTop: 2,
+    fontWeight: "500",
   },
   pricingCalculator: {
     flexDirection: "row",

@@ -94,7 +94,6 @@ const PrintSettings = () => {
      const [totalCost, setTotalCost] = useState(0);
      const [convenienceFee, setConvenienceFee] = useState(0);
      const [isLoadingPages, setIsLoadingPages] = useState(true);
-     const [isFetchingMetadata, setIsFetchingMetadata] = useState(false);
      const [formData, setFormData] = useState({
           colorMode: 'Colored',
           layout: 'Portrait',
@@ -117,71 +116,19 @@ const PrintSettings = () => {
      const [vendorUPI, setVendorUPI] = useState<{ upiId: string, name: string } | null>(null);
      const [upiError, setUpiError] = useState<string | null>(null);
 
-     // Effect to handle metadata fetching of all files on mount for accurate page counts
-     useEffect(() => {
-          const fetchMetadata = async () => {
-               const filesToFetch = internalFiles.filter(f => !f.pageCount || f.pageCount <= 1);
-               if (filesToFetch.length === 0) return;
-
-               setIsFetchingMetadata(true);
-               try {
-                    const { token } = await getAuthData();
-                    const updatedFiles = [...internalFiles];
-                    
-                    for (let i = 0; i < updatedFiles.length; i++) {
-                         const file = updatedFiles[i];
-                         // Only fetch for PDF or DOCX to get accurate counts
-                         const isDoc = file.name.toLowerCase().endsWith('.docx') || file.name.toLowerCase().endsWith('.pdf');
-                         
-                         if (isDoc && !file.pageCount) {
-                              console.log(`[META] Fetching for ${file.name}...`);
-                              const result = await FileSystem.uploadAsync(`${API_URL}/vendors/files/metadata`, file.uri, {
-                                   httpMethod: 'POST',
-                                   uploadType: FileSystem.FileSystemUploadType.MULTIPART,
-                                   fieldName: 'file',
-                                   headers: {
-                                        'x-auth-token': token || ''
-                                   }
-                              });
-
-                              if (result.status === 200) {
-                                   const data = JSON.parse(result.body);
-                                   updatedFiles[i] = {
-                                        ...file,
-                                        pageCount: data.pageCount
-                                   };
-                                   console.log(`[META] Success for ${file.name}. Pages: ${data.pageCount}`);
-                              }
-                         }
-                    }
-                    setInternalFiles(updatedFiles);
-               } catch (err) {
-                    console.error("[META] Error during metadata fetch:", err);
-               } finally {
-                    setIsFetchingMetadata(false);
-               }
-          };
-
-          fetchMetadata();
-     }, []);
-
      useEffect(() => {
           const calculateTotalPages = async () => {
                setIsLoadingPages(true);
                let total = 0;
                try {
                     for (const file of internalFiles) {
-                         // Skip summation while metadata is being fetched to avoid flickering with wrong '1 page' values
-                         if (isFetchingMetadata && (file.name.toLowerCase().endsWith('.docx') || file.name.toLowerCase().endsWith('.pdf')) && !file.pageCount) {
-                              continue;
-                         }
-
-                         // If we already have a page count from server conversion, use it
+                         // Files now come with pageCount already calculated from home.tsx
                          if (file.pageCount !== undefined) {
                               total += file.pageCount;
                               continue;
                          }
 
+                         // Standard local fallback (same as home.tsx logic)
                          const isPdf = file.mimeType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
                          if (isPdf) {
                               try {
@@ -292,7 +239,7 @@ const PrintSettings = () => {
                               fileName: standardizedFileName,
                               contentType: file.mimeType || 'application/octet-stream',
                               totalPages: totalPages,
-                              totalAmount: totalCost,
+                              totalAmount: parseFloat(pendingAmount) || totalCost,
                               isColor: formData.colorMode === 'Colored',
                               pageCount: file.pageCount || 1
                          })
@@ -497,8 +444,8 @@ const PrintSettings = () => {
      };
 
      const handleCheckout = async () => {
-          if (isFetchingMetadata || isLoadingPages) {
-               Alert.alert("Preparing Files", "Please wait while we prepare your documents and calculate the final total.");
+          if (isLoadingPages) {
+               Alert.alert("Calculating Price", "Please wait a moment while we verify the document details.");
                return;
           }
 
@@ -560,7 +507,7 @@ const PrintSettings = () => {
                     <View style={styles.summaryItem}>
                          <Hash size={20} color="#1271dd" />
                          <Text style={styles.summaryLabel}>
-                              {isLoadingPages || isFetchingMetadata ? 'Preparing...' : `${totalPages} Total Pages`}
+                              {isLoadingPages ? 'Calculating...' : `${totalPages} Total Pages`}
                          </Text>
                     </View>
                </View>
@@ -571,11 +518,11 @@ const PrintSettings = () => {
                          <Text style={styles.stickValue}>₹{totalCost.toFixed(2)}</Text>
                     </View>
                     <TouchableOpacity
-                         style={[styles.stickBtn, (isUploading || isFetchingMetadata || isLoadingPages) && { opacity: 0.7 }]}
+                         style={[styles.stickBtn, (isUploading || isLoadingPages) && { opacity: 0.7 }]}
                          onPress={handleCheckout}
-                         disabled={isUploading || isFetchingMetadata || isLoadingPages}
+                         disabled={isUploading || isLoadingPages}
                     >
-                         {(isUploading || isFetchingMetadata || isLoadingPages) ? (
+                         {(isUploading || isLoadingPages) ? (
                               <ActivityIndicator color="#ffffff" size="small" />
                          ) : (
                               <Text style={styles.stickBtnText}>PRINT NOW</Text>
