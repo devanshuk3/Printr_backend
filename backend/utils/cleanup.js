@@ -67,25 +67,25 @@ const cleanupOldFiles = async () => {
  * This applies to Both uploaded_files and orders.
  */
 const cleanupDatabaseHistory = async () => {
-  console.log('[Cleanup] purging old database history (3h history / 10h queue policy)...');
+  console.log('[Cleanup] purging old database history (1h history / 1h queue policy)...');
   try {
-    // 1. Delete completed/failed records after 3 hours (History)
+    // 1. Delete completed/failed records after 1 hour (History)
     const historyRes = await db.supabaseQuery(`
       DELETE FROM uploaded_files 
       WHERE status IN ('printed', 'failed') 
-      AND uploaded_at <= NOW() - INTERVAL '3 hours'
+      AND uploaded_at <= NOW() - INTERVAL '1 hour'
     `);
 
-    // 2. Delete old order records after 3 hours
+    // 2. Delete old order records after 1 hour
     const orderRes = await db.supabaseQuery(`
       DELETE FROM orders 
-      WHERE created_at <= NOW() - INTERVAL '3 hours'
+      WHERE created_at <= NOW() - INTERVAL '1 hour'
     `);
 
-    // 3. Absolute 10-hour purge for everything (Queue limit)
+    // 3. Absolute 1 hour purge for everything (Queue limit)
     const absoluteRes = await db.supabaseQuery(`
       DELETE FROM uploaded_files 
-      WHERE uploaded_at <= NOW() - INTERVAL '10 hours'
+      WHERE uploaded_at <= NOW() - INTERVAL '1 hour'
     `);
 
     console.log(`[Cleanup] purged ${historyRes.rowCount || 0} history, ${orderRes.rowCount || 0} orders, and ${absoluteRes.rowCount || 0} expired queue items.`);
@@ -148,15 +148,15 @@ const startCleanupTask = () => {
   cleanupDatabaseHistory().catch(() => { });
 
   // Recurring schedules
-  // 1. Files/Queue Cleanup: Check for expired (10h) files/records every hour
-  cron.schedule('0 * * * *', async () => {
-    console.log(`[Cleanup] Starting 10-hour queue/file check...`);
+  // 1. Files/Queue Cleanup: Check for expired record/file removals every 20 minutes
+  cron.schedule('*/20 * * * *', async () => {
+    console.log(`[Cleanup] Starting 1-hour queue/file check...`);
     await cleanupOldFiles();
   });
 
-  // 2. History Purge: Delete DB records older than 3 hours, every 30 minutes
+  // 2. History Purge: Delete DB records older than 1 hour, every 30 minutes
   cron.schedule('*/30 * * * *', async () => {
-    console.log(`[Cleanup] Starting history purge (3h policy)...`);
+    console.log(`[Cleanup] Starting history purge (1h policy)...`);
     await cleanupDatabaseHistory();
   });
 
