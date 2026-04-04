@@ -385,21 +385,58 @@ export default function HomePage() {
           return;
         }
 
+        // --- Alert for Document Files ---
+        const nonStandardFiles = filteredAssets.filter(asset => {
+           const mime = asset.mimeType?.toLowerCase() || "";
+           const name = asset.name.toLowerCase();
+           const isPdf = mime === "application/pdf" || name.endsWith(".pdf");
+           const isImage = mime.startsWith("image/");
+           const isPpt = mime.includes("presentation") || mime.includes("powerpoint") || name.endsWith(".ppt") || name.endsWith(".pptx");
+           return !isPdf && !isImage && !isPpt;
+        });
+
+        if (nonStandardFiles.length > 0) {
+           await new Promise(resolve => {
+              Alert.alert(
+                "Document Notice",
+                "DOCX and other office files will be converted to PDF. Please note that complex formatting, tables, or non-standard fonts may break during this process. We recommend converting them to PDF manually for absolute accuracy.",
+                [{ text: "Continue", onPress: resolve }]
+              );
+           });
+        }
+        // --------------------------------
+
         setIsUploading(true);
         const newFilesList = await Promise.all(filteredAssets.map(async (asset) => {
-          const fileName = asset.name;
+          let fileName = asset.name;
+          let fileUri = asset.uri;
+          let fileMime = asset.mimeType || "application/octet-stream";
+
+          // -- FILE CONVERSION LOGIC --
+          const isPdf = fileMime === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
+          const isImage = fileMime.startsWith("image/");
+          const isPpt = fileMime.includes("presentation") || fileMime.includes("powerpoint") || fileName.toLowerCase().endsWith(".ppt") || fileName.toLowerCase().endsWith(".pptx");
+          
+          let needsConversion = false;
+          if (!isPdf && !isImage && !isPpt) {
+             needsConversion = true;
+             console.log(`[PRINT_CONVERSION] Requesting conversion for ${fileName}...`);
+          }
+          // ---------------------------
+
           const destinationUri = (FileSystem.documentDirectory || "") + fileName;
 
-          // Copy locally first for preview/counting/sending to preferences
+          // Copy locally first
           await FileSystem.copyAsync({
-            from: asset.uri,
+            from: fileUri,
             to: destinationUri,
           });
 
           return {
             uri: destinationUri,
             name: fileName,
-            mimeType: asset.mimeType || "application/octet-stream",
+            mimeType: fileMime,
+            needsConversion: needsConversion // Track this for later upload
           };
         }));
 
