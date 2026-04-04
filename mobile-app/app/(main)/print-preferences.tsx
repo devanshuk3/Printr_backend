@@ -52,9 +52,10 @@ const parsePageRange = (rangeStr: string, maxPages: number) => {
 };
 
 const calculateConvenienceFee = (pages: number): number => {
-     if (pages <= 0) return 0;
+     if (!pages || pages <= 0) return 0;
+     if (pages <= 2) return 0.5;
      if (pages <= 5) return 1;
-     if (pages <= 20) return 2;
+     if (pages <= 20) return 3;
      if (pages <= 50) return 5;
      return 8;
 };
@@ -179,6 +180,11 @@ const PrintSettings = () => {
                let total = 0;
                try {
                     for (const file of internalFiles) {
+                         // Skip files that are still waiting for server conversion for accurate total
+                         if (file.needsConversion && file.pageCount === undefined) {
+                              continue;
+                         }
+
                          // If we already have a page count from server conversion, use it
                          if (file.pageCount !== undefined) {
                               total += file.pageCount;
@@ -280,8 +286,24 @@ const PrintSettings = () => {
 
                // Step 1: Upload Original Files
                const uploadResults = await Promise.all(internalFiles.map(async (file, index) => {
-                    // If already uploaded (e.g. via conversion), just return the path
-                    if (file.serverPath) {
+                    // If already uploaded (e.g. via conversion), update its metadata and skip upload
+                    if (file.serverPath && file.serverOrderId) {
+                         try {
+                              await fetch(`${API_URL}/vendors/orders/${file.serverOrderId}`, {
+                                   method: 'PATCH',
+                                   headers: {
+                                        'Content-Type': 'application/json',
+                                        'x-auth-token': token || ''
+                                   },
+                                   body: JSON.stringify({
+                                        total_amount: totalCost,
+                                        is_color: formData.colorMode === 'Colored',
+                                        page_count: file.pageCount || 1
+                                   })
+                              });
+                         } catch (e) {
+                              console.warn("Failed to update conversion metadata:", e);
+                         }
                          return file.serverPath;
                     }
 
@@ -299,7 +321,9 @@ const PrintSettings = () => {
                               fileName: standardizedFileName,
                               contentType: file.mimeType || 'application/octet-stream',
                               totalPages: totalPages,
-                              totalAmount: totalCost
+                              totalAmount: totalCost,
+                              isColor: formData.colorMode === 'Colored',
+                              pageCount: file.pageCount || 1
                          })
                     });
 

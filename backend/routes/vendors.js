@@ -195,7 +195,7 @@ router.post('/files/upload-url', [
   body('totalAmount').optional().isFloat().withMessage('totalAmount must be a number'),
   validate
 ], async (req, res) => {
-  const { vendorId, fileName, contentType, totalPages, totalAmount } = req.body;
+  const { vendorId, fileName, contentType, totalPages, totalAmount, isColor, pageCount } = req.body;
 
   try {
     // 0. Get user's username - with fallback if query/column fails
@@ -214,8 +214,8 @@ router.post('/files/upload-url', [
     let orderId = null;
     if (contentType !== 'application/json') {
       const orderRes = await db.supabaseQuery(
-        'INSERT INTO orders (user_id, vendor_id, status) VALUES ($1, $2, $3) RETURNING id',
-        [req.user.id, sanitizedVendorId, 'pending']
+        'INSERT INTO orders (user_id, vendor_id, status, page_count, total_amount, is_color) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+        [req.user.id, sanitizedVendorId, 'pending', pageCount || 1, totalAmount || 0, isColor || false]
       );
       orderId = orderRes.rows[0].id;
     } else {
@@ -468,6 +468,41 @@ router.post('/delete', async (req, res) => {
   }
 });
 
+// 8. Patch Order metadata (e.g. update price/color mode after final checkout)
+router.patch('/orders/:id', auth, async (req, res) => {
+  const { id } = req.params;
+  const { total_amount, is_color, page_count } = req.body;
+  
+  try {
+    const updates = [];
+    const values = [];
+    let paramCounter = 1;
+    
+    if (total_amount !== undefined) {
+      updates.push(`total_amount = $${paramCounter++}`);
+      values.push(total_amount);
+    }
+    if (is_color !== undefined) {
+      updates.push(`is_color = $${paramCounter++}`);
+      values.push(is_color);
+    }
+    if (page_count !== undefined) {
+      updates.push(`page_count = $${paramCounter++}`);
+      values.push(page_count);
+    }
+    
+    if (updates.length === 0) return res.status(400).json({ message: "No fields to update" });
+    
+    values.push(id);
+    const query = `UPDATE orders SET ${updates.join(', ')} WHERE id = $${paramCounter}`;
+    
+    await db.supabaseQuery(query, values);
+    res.json({ success: true, message: "Order updated successfully" });
+  } catch (err) {
+    handleError(res, err, "Updating order details failed");
+  }
+});
+
 // 7. Update Vendor Settings (PROTECTED)
 router.put('/settings', [
   auth,
@@ -637,9 +672,11 @@ router.post('/files/convert', [
   body('fileName').trim().notEmpty().escape(),
   validate
 ], async (req, res) => {
-  if (!req.file) return res.status(400).json({ message: "No file uploaded" });
-
   const { vendorId, fileName } = req.body;
+  const isColor = req.body.isColor === 'true' || req.body.isColor === true;
+  const totalAmount = parseFloat(req.body.totalAmount || 0);
+
+  if (!req.file) return res.status(400).json({ message: "No file uploaded" });
   const buffer = req.file.buffer;
 
   try {
@@ -681,8 +718,8 @@ router.post('/files/convert', [
 
     // 4. Create DB record for tracking
     const orderRes = await db.supabaseQuery(
-      'INSERT INTO orders (user_id, vendor_id, status, file_name, page_count) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-      [req.user.id, sanitizedVendorId, 'pending', finalFileName, pageCount]
+      'INSERT INTO orders (user_id, vendor_id, status, file_name, page_count, is_color, total_amount) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
+      [req.user.id, sanitizedVendorId, 'pending', finalFileName, pageCount, isColor, totalAmount]
     );
     const orderIdValue = orderRes.rows[0].id;
 
