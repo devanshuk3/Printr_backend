@@ -499,7 +499,9 @@ export default function HomePage() {
         colorPrice: verifiedVendor?.color_price?.toString() || "0",
         vendorPhone: verifiedVendor?.phone || "",
         upiId: verifiedVendor?.upi_id || "",
-        vendorName: verifiedVendor?.shop_name || verifiedVendor?.name || "Vendor"
+        vendorName: verifiedVendor?.shop_name || verifiedVendor?.name || "Vendor",
+        hasBw: verifiedVendor?.has_bw_printer?.toString(),
+        hasColor: verifiedVendor?.has_color_printer?.toString()
       },
     } as any);
   };
@@ -724,12 +726,16 @@ export default function HomePage() {
                    <Text style={styles.vendorInfoPhone}>{verifiedVendor.phone}</Text>
                 </View>
                 <View style={styles.vendorPriceBadgeContainer}>
-                  <View style={styles.vendorPriceBadge}>
-                    <Text style={styles.vendorPriceText}>B&W: ₹{verifiedVendor.price_per_page}</Text>
-                  </View>
-                  <View style={[styles.vendorPriceBadge, { backgroundColor: '#fff7ed', borderColor: '#ffedd5' }]}>
-                    <Text style={[styles.vendorPriceText, { color: '#ea580c' }]}>Color: ₹{verifiedVendor.color_price}</Text>
-                  </View>
+                  {verifiedVendor.has_bw_printer !== false && (
+                    <View style={styles.vendorPriceBadge}>
+                      <Text style={styles.vendorPriceText}>B&W: ₹{verifiedVendor.price_per_page}</Text>
+                    </View>
+                  )}
+                  {verifiedVendor.has_color_printer !== false && (
+                    <View style={[styles.vendorPriceBadge, { backgroundColor: '#fff7ed', borderColor: '#ffedd5' }]}>
+                      <Text style={[styles.vendorPriceText, { color: '#ea580c' }]}>Color: ₹{verifiedVendor.color_price}</Text>
+                    </View>
+                  )}
                 </View>
               </View>
             </View>

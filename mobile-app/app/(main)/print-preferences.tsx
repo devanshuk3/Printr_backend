@@ -68,14 +68,16 @@ const getUpiParam = (url: string, param: string) => {
 
 const PrintSettings = () => {
      const router = useRouter();
-     const { files, vendorId, vendorPhone, bwPrice, colorPrice, upiId, vendorName } = useLocalSearchParams<{
+     const { files, vendorId, vendorPhone, bwPrice, colorPrice, upiId, vendorName, hasBw, hasColor } = useLocalSearchParams<{
           files: string,
           vendorId: string,
           vendorPhone: string,
           bwPrice: string,
           colorPrice: string,
           upiId: string,
-          vendorName: string
+          vendorName: string,
+          hasBw: string,
+          hasColor: string
      }>();
      const initialFiles = files ? JSON.parse(files) as Array<{ uri: string, name: string, mimeType: string, needsConversion?: boolean }> : [];
      const [internalFiles, setInternalFiles] = useState<Array<{ 
@@ -95,7 +97,7 @@ const PrintSettings = () => {
      const [convenienceFee, setConvenienceFee] = useState(0);
      const [isLoadingPages, setIsLoadingPages] = useState(true);
      const [formData, setFormData] = useState({
-          colorMode: 'Colored',
+          colorMode: hasColor === 'true' ? 'Colored' : 'Black & White',
           layout: 'Portrait',
           scaling: 'Fit to Page',
           customScale: '',
@@ -185,7 +187,9 @@ const PrintSettings = () => {
           const fee = calculateConvenienceFee(totalPages * copies);
           setConvenienceFee(fee);
 
-          setTotalCost(basePrintingCost + fee);
+          const newBaseCost = basePrintingCost + fee;
+          setTotalCost(newBaseCost);
+          setPendingAmount('0.00');
      }, [totalPages, copies, formData.colorMode, formData.doubleSided, bwPrice, colorPrice]);
 
      const handleChange = (field: string, value: string) => {
@@ -464,10 +468,8 @@ const PrintSettings = () => {
                return;
           }
 
-          // Calculate final amount with random verification decimals
-          const randomVerification = (Math.floor(Math.random() * 19) + 1) / 100;
-          const finalAmount = (totalCost + randomVerification).toFixed(2);
-
+          // Use exact amount
+          const finalAmount = totalCost.toFixed(2);
           setPendingAmount(finalAmount);
           setShowPaymentModal(true);
           fetchVendorDetails();
@@ -546,7 +548,10 @@ const PrintSettings = () => {
                          </View>
                     )}
 
-                    {renderDropdown('Color Mode', 'colorMode', ['Colored', 'Black & White', 'Grayscale'])}
+                    {renderDropdown('Color Mode', 'colorMode', [
+                         ...(hasColor === 'true' ? ['Colored'] : []),
+                         ...(hasBw === 'true' || hasBw === undefined ? ['Black & White'] : [])
+                    ])}
 
                     <View style={styles.section}>
                          <Text style={styles.label}>Number of copies</Text>
