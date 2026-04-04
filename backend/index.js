@@ -60,7 +60,10 @@ const ensureTables = async () => {
       file_name VARCHAR(255),
       status VARCHAR(50) DEFAULT 'pending',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_orders_vendor_id_status ON orders (LOWER(vendor_id), status)`,
+    `CREATE INDEX IF NOT EXISTS idx_uploaded_files_file_name ON uploaded_files (file_name)`,
+    `CREATE INDEX IF NOT EXISTS idx_orders_file_name ON orders (file_name)`
   ];
 
   for (const query of tableCheck) {

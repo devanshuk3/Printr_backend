@@ -10,8 +10,15 @@ const auth = require('../middleware/auth');
 const checkRole = require('../middleware/roleAuth');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
-const multer = require('multer');
-const upload = multer({ storage: multer.memoryStorage() });
+
+// ── Application-Level Queue Caching (Limits DB requests on dashboard polling) ──
+const queueCache = new Map(); // key: vendor_id, value: { data: [], timestamp: number }
+
+const invalidateCache = (vendorId) => {
+  if (!vendorId) return;
+  queueCache.delete(vendorId.toLowerCase().trim());
+  console.log(`[Cache] Invalidated queue for vendor: ${vendorId}`);
+};
 
 /**
  * @helper Sanitize error message for production
@@ -163,6 +170,7 @@ router.post('/files/clear-vendor', [
     );
 
     console.log(`[R2] Cleared ${allFiles.length} files from DB metadata for vendor: ${sanitizedVendorId}`);
+    invalidateCache(vendorId);
     res.json({ message: "Vendor folder cleared", deleted: allFiles.length });
   } catch (err) {
     console.error("Clear vendor files error:", err);
@@ -249,6 +257,9 @@ router.post('/files/upload-url', [
     );
 
     // 5. Removed Print Queue usage as per user request
+
+    // 5. Invalidate the dashboard cache for this vendor to show the new order immediately
+    invalidateCache(vendorId);
 
     const command = new PutObjectCommand({
       Bucket: bucketName,
@@ -394,8 +405,15 @@ router.get('/files', async (req, res) => {
   if (!vendorId) return res.status(400).json({ message: "vendor_id is required" });
 
   try {
-    // List pending/in-progress orders specifically for the dashboard
-    // Joins with users to get the sender_name
+    const sanitizedVendorId = vendorId.toLowerCase().trim();
+    
+    // Check Cache First (30 second buffer)
+    const cached = queueCache.get(sanitizedVendorId);
+    if (cached && (Date.now() - cached.timestamp < 30000)) { // 30s TTL
+        return res.json({ files: cached.data });
+    }
+
+    // Fetch from Database
     const result = await db.supabaseQuery(`
       SELECT 
         o.id, 
@@ -414,8 +432,11 @@ router.get('/files', async (req, res) => {
         AND o.status NOT IN ('completed', 'cancelled', 'printed', 'rejected')
         AND o.file_name NOT LIKE '%.xml'
       ORDER BY o.created_at DESC`,
-      [vendorId]
+      [sanitizedVendorId]
     );
+
+    // Save to Cache
+    queueCache.set(sanitizedVendorId, { data: result.rows, timestamp: Date.now() });
 
     res.json({ files: result.rows });
   } catch (err) {
@@ -448,6 +469,11 @@ router.post('/printed-legacy', async (req, res) => {
   const { id } = req.body;
   try {
     await db.supabaseQuery("UPDATE orders SET status = 'printed' WHERE id = $1", [id]);
+    
+    // Fetch vendor_id to invalidate cache
+    const orderRes = await db.supabaseQuery("SELECT vendor_id FROM orders WHERE id = $1", [id]);
+    if (orderRes.rows.length > 0) invalidateCache(orderRes.rows[0].vendor_id);
+
     res.json({ message: "Status updated to Printed", status: "success" });
   } catch (err) {
     handleError(res, err, "Marking printed failed");
@@ -461,6 +487,11 @@ router.post('/delete', async (req, res) => {
     // We mark as cancelled in orders table instead of deleting metadata if possible, 
     // or we delete it completely if preferred.
     await db.supabaseQuery("UPDATE orders SET status = 'cancelled' WHERE id = $1", [id]);
+    
+    // Invalidate
+    const orderRes = await db.supabaseQuery("SELECT vendor_id FROM orders WHERE id = $1", [id]);
+    if (orderRes.rows.length > 0) invalidateCache(orderRes.rows[0].vendor_id);
+
     res.json({ message: "Order cancelled and removed", status: "success" });
   } catch (err) {
     handleError(res, err, "Order cancellation failed");
@@ -657,41 +688,11 @@ router.post('/update-order-status', [
       [status, orderId]
     );
 
+    invalidateCache(vendorIdFromAuth);
+
     res.json({ success: true, message: `Order marked as ${status}` });
   } catch (err) {
     handleError(res, err, "Updating order status failed");
-  }
-});
-
-// 9. Quick Metadata extraction (for accurate page counting on the fly)
-router.post('/files/metadata', [
-  auth,
-  upload.single('file'),
-  validate
-], async (req, res) => {
-  if (!req.file) return res.status(400).json({ message: "No file uploaded" });
-
-  try {
-    const { getDocxPageCount, getPdfPageCount } = require('../utils/meta');
-    const buffer = req.file.buffer;
-    const fileName = req.file.originalname || "unknown";
-    const mimeType = req.file.mimetype || "";
-
-    let pageCount = 1;
-    if (mimeType.includes('pdf') || fileName.toLowerCase().endsWith('.pdf')) {
-      pageCount = getPdfPageCount(buffer);
-    } else if (mimeType.includes('officedocument.wordprocessingml') || fileName.toLowerCase().endsWith('.docx')) {
-      pageCount = getDocxPageCount(buffer);
-    }
-
-    res.json({
-      success: true,
-      fileName,
-      pageCount
-    });
-  } catch (err) {
-    console.error('[Meta Endpoint Error]', err);
-    res.status(500).json({ message: "Metadata extraction failed", error: err.message });
   }
 });
 
