@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS vendors (
     paper_sizes VARCHAR(255),
     pages_printed INTEGER DEFAULT 0,
     platform_fee DECIMAL(10, 2) DEFAULT 0.00,
+    auto_accept_jobs BOOLEAN DEFAULT TRUE,
+    enable_upi BOOLEAN DEFAULT TRUE,
+    min_amount DECIMAL(10, 2) DEFAULT 1.00,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
