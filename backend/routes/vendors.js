@@ -11,7 +11,6 @@ const checkRole = require('../middleware/roleAuth');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
-const { convertDocxToPdf } = require('../utils/converter');
 const upload = multer({ storage: multer.memoryStorage() });
 
 /**
@@ -664,84 +663,35 @@ router.post('/update-order-status', [
   }
 });
 
-// 11. Convert DOCX to PDF and upload to R2 (PROTECTED)
-router.post('/files/convert', [
+// 9. Quick Metadata extraction (for accurate page counting on the fly)
+router.post('/files/metadata', [
   auth,
   upload.single('file'),
-  body('vendorId').trim().notEmpty().matches(/^[a-zA-Z0-9_-]+$/).withMessage('Invalid Vendor ID format'),
-  body('fileName').trim().notEmpty().escape(),
   validate
 ], async (req, res) => {
-  const { vendorId, fileName } = req.body;
-  const isColor = req.body.isColor === 'true' || req.body.isColor === true;
-  const totalAmount = parseFloat(req.body.totalAmount || 0);
-
   if (!req.file) return res.status(400).json({ message: "No file uploaded" });
-  const buffer = req.file.buffer;
 
   try {
-    // 1. Convert to PDF using mammoth + puppeteer
-    console.log(`[ROUTE_CONVERT] Starting conversion for file: ${fileName}, size: ${buffer.length}`);
-    const { pdfBuffer, pageCount } = await convertDocxToPdf(buffer);
-    console.log(`[ROUTE_CONVERT] Conversion complete. Page count: ${pageCount}`);
+    const { getDocxPageCount, getPdfPageCount } = require('../utils/meta');
+    const buffer = req.file.buffer;
+    const fileName = req.file.originalname || "unknown";
+    const mimeType = req.file.mimetype || "";
 
-    // 2. Determine paths for R2
-    const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
-    let username = `user${req.user.id}`;
-    
-    try {
-      const userRes = await db.supabaseQuery('SELECT username FROM users WHERE id = $1', [req.user.id]);
-      if (userRes.rows.length > 0 && userRes.rows[0].username) {
-        username = userRes.rows[0].username;
-      }
-    } catch (e) {
-      console.warn("Could not fetch username during conversion fallback:", e.message);
+    let pageCount = 1;
+    if (mimeType.includes('pdf') || fileName.toLowerCase().endsWith('.pdf')) {
+      pageCount = getPdfPageCount(buffer);
+    } else if (mimeType.includes('officedocument.wordprocessingml') || fileName.toLowerCase().endsWith('.docx')) {
+      pageCount = getDocxPageCount(buffer);
     }
-
-    // Generate PDF name
-    const orderId = Date.now().toString().slice(-8);
-    const finalFileName = `${username}${orderId}.pdf`;
-    const filePath = `${sanitizedVendorId}/${finalFileName}`;
-
-    // 3. Upload to R2 directly
-    const bucketName = process.env.R2_BUCKET_NAME ? process.env.R2_BUCKET_NAME.trim() : '';
-    if (!bucketName) throw new Error("R2_BUCKET_NAME is missing on server");
-
-    const uploadParams = {
-      Bucket: bucketName,
-      Key: filePath,
-      Body: pdfBuffer,
-      ContentType: 'application/pdf'
-    };
-
-    await r2.send(new PutObjectCommand(uploadParams));
-
-    // 4. Create DB record for tracking
-    const orderRes = await db.supabaseQuery(
-      'INSERT INTO orders (user_id, vendor_id, status, file_name, page_count, is_color, total_amount) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
-      [req.user.id, sanitizedVendorId, 'pending', finalFileName, pageCount, isColor, totalAmount]
-    );
-    const orderIdValue = orderRes.rows[0].id;
-
-    // Track in uploaded_files
-    const deleteAfter = new Date(Date.now() + 10 * 60 * 60 * 1000); // 10 hour retention
-    await db.supabaseQuery(
-      `INSERT INTO uploaded_files (object_key, vendor_id, user_id, file_name, status, delete_after)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [filePath, sanitizedVendorId, req.user.id, finalFileName, 'uploaded', deleteAfter]
-    );
 
     res.json({
       success: true,
-      message: "File converted and uploaded successfully",
-      fileName: finalFileName,
-      filePath: filePath,
-      orderId: orderIdValue,
-      pageCount: pageCount
+      fileName,
+      pageCount
     });
   } catch (err) {
-    console.error('[Converter Endpoint Error]', err);
-    res.status(500).json({ message: "File conversion/upload failed", error: err.message });
+    console.error('[Meta Endpoint Error]', err);
+    res.status(500).json({ message: "Metadata extraction failed", error: err.message });
   }
 });
 

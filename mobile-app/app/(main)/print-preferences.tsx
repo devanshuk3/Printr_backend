@@ -94,7 +94,7 @@ const PrintSettings = () => {
      const [totalCost, setTotalCost] = useState(0);
      const [convenienceFee, setConvenienceFee] = useState(0);
      const [isLoadingPages, setIsLoadingPages] = useState(true);
-     const [isConverting, setIsConverting] = useState(false);
+     const [isFetchingMetadata, setIsFetchingMetadata] = useState(false);
      const [formData, setFormData] = useState({
           colorMode: 'Colored',
           layout: 'Portrait',
@@ -117,29 +117,28 @@ const PrintSettings = () => {
      const [vendorUPI, setVendorUPI] = useState<{ upiId: string, name: string } | null>(null);
      const [upiError, setUpiError] = useState<string | null>(null);
 
-     // Effect to handle conversion of non-PDF files on mount
+     // Effect to handle metadata fetching of all files on mount for accurate page counts
      useEffect(() => {
-          const convertFiles = async () => {
-               const filesToConvert = internalFiles.filter(f => f.needsConversion && !f.serverPath);
-               if (filesToConvert.length === 0) return;
+          const fetchMetadata = async () => {
+               const filesToFetch = internalFiles.filter(f => !f.pageCount || f.pageCount <= 1);
+               if (filesToFetch.length === 0) return;
 
-               setIsConverting(true);
+               setIsFetchingMetadata(true);
                try {
                     const { token } = await getAuthData();
                     const updatedFiles = [...internalFiles];
                     
                     for (let i = 0; i < updatedFiles.length; i++) {
                          const file = updatedFiles[i];
-                         if (file.needsConversion && !file.serverPath) {
-                              console.log(`[CONVERSION] Starting for ${file.name}...`);
-                              const result = await FileSystem.uploadAsync(`${API_URL}/vendors/files/convert`, file.uri, {
+                         // Only fetch for PDF or DOCX to get accurate counts
+                         const isDoc = file.name.toLowerCase().endsWith('.docx') || file.name.toLowerCase().endsWith('.pdf');
+                         
+                         if (isDoc && !file.pageCount) {
+                              console.log(`[META] Fetching for ${file.name}...`);
+                              const result = await FileSystem.uploadAsync(`${API_URL}/vendors/files/metadata`, file.uri, {
                                    httpMethod: 'POST',
                                    uploadType: FileSystem.FileSystemUploadType.MULTIPART,
                                    fieldName: 'file',
-                                   parameters: {
-                                        vendorId: vendorId || "",
-                                        fileName: file.name
-                                   },
                                    headers: {
                                         'x-auth-token': token || ''
                                    }
@@ -149,29 +148,21 @@ const PrintSettings = () => {
                                    const data = JSON.parse(result.body);
                                    updatedFiles[i] = {
                                         ...file,
-                                        mimeType: 'application/pdf',
-                                        name: data.fileName || file.name.replace(/\.[^/.]+$/, "") + ".pdf",
-                                        serverPath: data.filePath,
-                                        serverOrderId: data.orderId,
-                                        pageCount: data.pageCount,
-                                        needsConversion: false // Clear flag once done
+                                        pageCount: data.pageCount
                                    };
-                                   console.log(`[CONVERSION] Success for ${file.name}. New page count: ${data.pageCount}`);
-                              } else {
-                                   console.warn(`[CONVERSION] Failed for ${file.name} with status ${result.status}. Response: ${result.body}`);
+                                   console.log(`[META] Success for ${file.name}. Pages: ${data.pageCount}`);
                               }
                          }
                     }
                     setInternalFiles(updatedFiles);
                } catch (err) {
-                    console.error("[CONVERSION] Error during batch conversion:", err);
-                    Alert.alert("Conversion Error", "Some documents could not be converted to PDF automatically. You might want to convert them manually for best results.");
+                    console.error("[META] Error during metadata fetch:", err);
                } finally {
-                    setIsConverting(false);
+                    setIsFetchingMetadata(false);
                }
           };
 
-          convertFiles();
+          fetchMetadata();
      }, []);
 
      useEffect(() => {
@@ -180,8 +171,8 @@ const PrintSettings = () => {
                let total = 0;
                try {
                     for (const file of internalFiles) {
-                         // Skip files that are still waiting for server conversion for accurate total
-                         if (file.needsConversion && file.pageCount === undefined) {
+                         // Skip summation while metadata is being fetched to avoid flickering with wrong '1 page' values
+                         if (isFetchingMetadata && (file.name.toLowerCase().endsWith('.docx') || file.name.toLowerCase().endsWith('.pdf')) && !file.pageCount) {
                               continue;
                          }
 
@@ -286,27 +277,7 @@ const PrintSettings = () => {
 
                // Step 1: Upload Original Files
                const uploadResults = await Promise.all(internalFiles.map(async (file, index) => {
-                    // If already uploaded (e.g. via conversion), update its metadata and skip upload
-                    if (file.serverPath && file.serverOrderId) {
-                         try {
-                              await fetch(`${API_URL}/vendors/orders/${file.serverOrderId}`, {
-                                   method: 'PATCH',
-                                   headers: {
-                                        'Content-Type': 'application/json',
-                                        'x-auth-token': token || ''
-                                   },
-                                   body: JSON.stringify({
-                                        total_amount: totalCost,
-                                        is_color: formData.colorMode === 'Colored',
-                                        page_count: file.pageCount || 1
-                                   })
-                              });
-                         } catch (e) {
-                              console.warn("Failed to update conversion metadata:", e);
-                         }
-                         return file.serverPath;
-                    }
-
+                    // Since we removed server-side conversion, we always upload directly to R2
                     // Naming pattern: username_orderid_originalfilename.ext
                     const standardizedFileName = `${username}_${orderId}_${file.name}`;
 
@@ -526,7 +497,7 @@ const PrintSettings = () => {
      };
 
      const handleCheckout = async () => {
-          if (isConverting || isLoadingPages) {
+          if (isFetchingMetadata || isLoadingPages) {
                Alert.alert("Preparing Files", "Please wait while we prepare your documents and calculate the final total.");
                return;
           }
@@ -589,7 +560,7 @@ const PrintSettings = () => {
                     <View style={styles.summaryItem}>
                          <Hash size={20} color="#1271dd" />
                          <Text style={styles.summaryLabel}>
-                              {isLoadingPages || isConverting ? 'Preparing...' : `${totalPages} Total Pages`}
+                              {isLoadingPages || isFetchingMetadata ? 'Preparing...' : `${totalPages} Total Pages`}
                          </Text>
                     </View>
                </View>
@@ -600,11 +571,11 @@ const PrintSettings = () => {
                          <Text style={styles.stickValue}>₹{totalCost.toFixed(2)}</Text>
                     </View>
                     <TouchableOpacity
-                         style={[styles.stickBtn, (isUploading || isConverting || isLoadingPages) && { opacity: 0.7 }]}
+                         style={[styles.stickBtn, (isUploading || isFetchingMetadata || isLoadingPages) && { opacity: 0.7 }]}
                          onPress={handleCheckout}
-                         disabled={isUploading || isConverting || isLoadingPages}
+                         disabled={isUploading || isFetchingMetadata || isLoadingPages}
                     >
-                         {(isUploading || isConverting || isLoadingPages) ? (
+                         {(isUploading || isFetchingMetadata || isLoadingPages) ? (
                               <ActivityIndicator color="#ffffff" size="small" />
                          ) : (
                               <Text style={styles.stickBtnText}>PRINT NOW</Text>
@@ -620,7 +591,7 @@ const PrintSettings = () => {
                                    {internalFiles.map((file, idx) => (
                                         <View key={idx} style={styles.fileSummaryItem}>
                                              <Text style={styles.fileSummaryName} numberOfLines={1}>
-                                                  {idx + 1}. {file.name} {file.needsConversion ? '(Converting...)' : ''}
+                                                  {idx + 1}. {file.name}
                                              </Text>
                                         </View>
                                    ))}
