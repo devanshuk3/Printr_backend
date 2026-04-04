@@ -39,7 +39,7 @@ router.get('/verify/:vendorId', [
 
   try {
     const result = await db.supabaseQuery(
-      'SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, phone, upi_id, pages_printed, platform_fee FROM vendors WHERE LOWER(TRIM(vendor_id)) = LOWER(TRIM($1))',
+      'SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, phone, upi_id, pages_printed, platform_fee, has_bw_printer, has_color_printer FROM vendors WHERE LOWER(TRIM(vendor_id)) = LOWER(TRIM($1))',
       [vendorId]
     );
 
@@ -56,7 +56,7 @@ router.get('/verify/:vendorId', [
 // Get all vendors (Only accessible by ADMINS)
 router.get('/all', [auth, checkRole(['admin'])], async (req, res) => {
   try {
-    const result = await db.supabaseQuery('SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, phone, upi_id, pages_printed, platform_fee FROM vendors ORDER BY shop_name ASC');
+    const result = await db.supabaseQuery('SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, phone, upi_id, pages_printed, platform_fee, has_bw_printer, has_color_printer FROM vendors ORDER BY shop_name ASC');
     res.json(result.rows);
   } catch (err) {
     handleError(res, err, "Fetching vendors failed");
@@ -368,8 +368,8 @@ router.post('/register', async (req, res) => {
   const data = req.body;
   try {
     const query = `
-      INSERT INTO vendors (vendor_id, password, full_name, shop_name, phone, upi_id, address, bw_price, color_price, paper_sizes)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      INSERT INTO vendors (vendor_id, password, full_name, shop_name, phone, upi_id, address, bw_price, color_price, paper_sizes, has_bw_printer, has_color_printer)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *`;
 
     // Hash password first
@@ -379,7 +379,7 @@ router.post('/register', async (req, res) => {
     const values = [
       data.vendor_id, hashedPassword, data.full_name, data.shop_name,
       data.phone, data.upi_id, data.address, data.bw_price,
-      data.color_price, data.paper_sizes
+      data.color_price, data.paper_sizes, data.has_bw_printer || false, data.has_color_printer || false
     ];
 
     const result = await db.supabaseQuery(query, values);
@@ -543,11 +543,14 @@ router.put('/settings', [
   body('auto_accept_jobs').optional().isBoolean(),
   body('enable_upi').optional().isBoolean(),
   body('min_amount').optional().isFloat({ min: 0 }),
+  body('has_bw_printer').optional().isBoolean(),
+  body('has_color_printer').optional().isBoolean(),
   validate
 ], async (req, res) => {
   const { 
     shop_name, bw_price, color_price, upi_id, 
-    auto_accept_jobs, enable_upi, min_amount 
+    auto_accept_jobs, enable_upi, min_amount,
+    has_bw_printer, has_color_printer
   } = req.body;
 
   const vendorIdFromAuth = req.user.vendor_id;
@@ -586,6 +589,14 @@ router.put('/settings', [
       updates.push(`min_amount = $${paramCounter++}`);
       values.push(min_amount);
     }
+    if (has_bw_printer !== undefined) {
+      updates.push(`has_bw_printer = $${paramCounter++}`);
+      values.push(has_bw_printer);
+    }
+    if (has_color_printer !== undefined) {
+      updates.push(`has_color_printer = $${paramCounter++}`);
+      values.push(has_color_printer);
+    }
 
     if (updates.length === 0) {
       return res.status(400).json({ message: "No settings provided to update" });
@@ -619,7 +630,7 @@ router.get('/settings/me', auth, async (req, res) => {
   const vendorIdFromAuth = req.user.vendor_id;
   try {
     const result = await db.supabaseQuery(
-      'SELECT shop_name, bw_price, color_price, upi_id, auto_accept_jobs, enable_upi, min_amount FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
+      'SELECT shop_name, bw_price, color_price, upi_id, auto_accept_jobs, enable_upi, min_amount, has_bw_printer, has_color_printer FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
       [vendorIdFromAuth]
     );
 

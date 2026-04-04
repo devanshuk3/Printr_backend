@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS vendors (
     shop_name VARCHAR(255) NOT NULL,
     bw_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
     color_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    has_bw_printer BOOLEAN DEFAULT TRUE,
+    has_color_printer BOOLEAN DEFAULT FALSE,
     phone VARCHAR(20),
     upi_id VARCHAR(255),
     address TEXT,
