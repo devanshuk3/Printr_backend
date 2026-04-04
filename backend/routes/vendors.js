@@ -9,6 +9,7 @@ const { validate } = require('../middleware/validator');
 const auth = require('../middleware/auth');
 const checkRole = require('../middleware/roleAuth');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 
 /**
  * @helper Sanitize error message for production
@@ -329,9 +330,8 @@ router.post('/login', async (req, res) => {
     }
 
     const vendor = result.rows[0];
-    // In a production app, we'd use bcrypt here. 
-    // Matching the Java backend's logic which might still be using plaintext or a specific hash.
-    if (vendor.password !== password) {
+    const isMatch = await bcrypt.compare(password, vendor.password);
+    if (!isMatch) {
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
@@ -358,10 +358,14 @@ router.post('/register', async (req, res) => {
       INSERT INTO vendors (vendor_id, password, full_name, shop_name, phone, upi_id, address, bw_price, color_price, paper_sizes)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *`;
-    
+
+    // Hash password first
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(data.password, salt);
+
     const values = [
-      data.vendor_id, data.password, data.full_name, data.shop_name, 
-      data.phone, data.upi_id, data.address, data.bw_price, 
+      data.vendor_id, hashedPassword, data.full_name, data.shop_name,
+      data.phone, data.upi_id, data.address, data.bw_price,
       data.color_price, data.paper_sizes
     ];
 
@@ -396,6 +400,9 @@ router.get('/files', async (req, res) => {
         o.file_name, 
         o.status, 
         o.created_at,
+        o.page_count,
+        o.is_color,
+        o.total_amount,
         u.full_name as sender_name,
         f.object_key as file_key
       FROM orders o
@@ -404,7 +411,7 @@ router.get('/files', async (req, res) => {
       WHERE LOWER(o.vendor_id) = LOWER($1) 
         AND o.status NOT IN ('completed', 'cancelled', 'printed', 'rejected')
         AND o.file_name NOT LIKE '%.xml'
-      ORDER BY o.created_at DESC`, 
+      ORDER BY o.created_at DESC`,
       [vendorId]
     );
 
@@ -458,4 +465,167 @@ router.post('/delete', async (req, res) => {
   }
 });
 
+// 7. Update Vendor Settings (PROTECTED)
+router.put('/settings', [
+  auth,
+  body('shop_name').optional().trim().notEmpty().escape(),
+  body('bw_price').optional().isFloat({ min: 0 }),
+  body('color_price').optional().isFloat({ min: 0 }),
+  body('upi_id').optional().trim().escape(),
+  body('auto_accept_jobs').optional().isBoolean(),
+  body('enable_upi').optional().isBoolean(),
+  body('min_amount').optional().isFloat({ min: 0 }),
+  validate
+], async (req, res) => {
+  const { 
+    shop_name, bw_price, color_price, upi_id, 
+    auto_accept_jobs, enable_upi, min_amount 
+  } = req.body;
+
+  const vendorIdFromAuth = req.user.vendor_id;
+
+  try {
+    // Dynamically build update query
+    const updates = [];
+    const values = [];
+    let paramCounter = 1;
+
+    if (shop_name !== undefined) {
+      updates.push(`shop_name = $${paramCounter++}`);
+      values.push(shop_name);
+    }
+    if (bw_price !== undefined) {
+      updates.push(`bw_price = $${paramCounter++}`);
+      values.push(bw_price);
+    }
+    if (color_price !== undefined) {
+      updates.push(`color_price = $${paramCounter++}`);
+      values.push(color_price);
+    }
+    if (upi_id !== undefined) {
+      updates.push(`upi_id = $${paramCounter++}`);
+      values.push(upi_id);
+    }
+    if (auto_accept_jobs !== undefined) {
+      updates.push(`auto_accept_jobs = $${paramCounter++}`);
+      values.push(auto_accept_jobs);
+    }
+    if (enable_upi !== undefined) {
+      updates.push(`enable_upi = $${paramCounter++}`);
+      values.push(enable_upi);
+    }
+    if (min_amount !== undefined) {
+      updates.push(`min_amount = $${paramCounter++}`);
+      values.push(min_amount);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ message: "No settings provided to update" });
+    }
+
+    values.push(vendorIdFromAuth);
+    const query = `
+      UPDATE vendors 
+      SET ${updates.join(', ')} 
+      WHERE LOWER(vendor_id) = LOWER($${paramCounter})
+      RETURNING *`;
+
+    const result = await db.supabaseQuery(query, values);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Vendor not found" });
+    }
+
+    res.json({ 
+      success: true, 
+      message: "Settings updated successfully",
+      settings: result.rows[0]
+    });
+  } catch (err) {
+    handleError(res, err, "Updating settings failed");
+  }
+});
+
+// 8. Get current vendor settings (PROTECTED)
+router.get('/settings/me', auth, async (req, res) => {
+  const vendorIdFromAuth = req.user.vendor_id;
+  try {
+    const result = await db.supabaseQuery(
+      'SELECT shop_name, bw_price, color_price, upi_id, auto_accept_jobs, enable_upi, min_amount FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
+      [vendorIdFromAuth]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Vendor not found" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    handleError(res, err, "Fetching vendor settings failed");
+  }
+});
+
+// 9. Get Vendor Activity Log (RECENT COMPLETED/CANCELLED ORDERS)
+router.get('/activity-log', auth, async (req, res) => {
+  const vendorIdFromAuth = req.user.vendor_id;
+  try {
+    const result = await db.supabaseQuery(`
+      SELECT 
+        o.id, 
+        o.status, 
+        o.created_at,
+        u.full_name as customer_name
+      FROM orders o
+      LEFT JOIN users u ON o.user_id = u.id
+      WHERE LOWER(o.vendor_id) = LOWER($1) 
+        AND o.status IN ('completed', 'cancelled', 'printed', 'rejected')
+      ORDER BY o.created_at DESC
+      LIMIT 20`,
+      [vendorIdFromAuth]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    handleError(res, err, "Fetching activity log failed");
+  }
+});
+
+// 10. Update Order Status (Verify/Reject)
+router.post('/update-order-status', [
+  auth,
+  body('orderId').notEmpty(),
+  body('status').isIn(['printed', 'rejected', 'cancelled']),
+  validate
+], async (req, res) => {
+  const { orderId, status } = req.body;
+  const vendorIdFromAuth = req.user.vendor_id;
+
+  try {
+    // Ensure the order belongs to this vendor
+    const checkRes = await db.supabaseQuery(
+      'SELECT vendor_id FROM orders WHERE id = $1',
+      [orderId]
+    );
+
+    if (checkRes.rows.length === 0) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    if (checkRes.rows[0].vendor_id.toLowerCase() !== vendorIdFromAuth.toLowerCase()) {
+      return res.status(403).json({ message: "Access denied to this order" });
+    }
+
+    await db.supabaseQuery(
+      'UPDATE orders SET status = $1 WHERE id = $2',
+      [status, orderId]
+    );
+
+    res.json({ success: true, message: `Order marked as ${status}` });
+  } catch (err) {
+    handleError(res, err, "Updating order status failed");
+  }
+});
+
 module.exports = router;
+
+

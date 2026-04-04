@@ -13,11 +13,15 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS vendors (
     id SERIAL PRIMARY KEY,
     vendor_id VARCHAR(50) UNIQUE NOT NULL,
+    password VARCHAR(255),
+    full_name VARCHAR(255),
     shop_name VARCHAR(255) NOT NULL,
     bw_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
     color_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
     phone VARCHAR(20),
     upi_id VARCHAR(255),
+    address TEXT,
+    paper_sizes VARCHAR(255),
     pages_printed INTEGER DEFAULT 0,
     platform_fee DECIMAL(10, 2) DEFAULT 0.00,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

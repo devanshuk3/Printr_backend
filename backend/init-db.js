@@ -17,11 +17,15 @@ const initDb = async () => {
     CREATE TABLE IF NOT EXISTS vendors (
       id SERIAL PRIMARY KEY,
       vendor_id VARCHAR(50) UNIQUE NOT NULL,
+      password VARCHAR(255),
+      full_name VARCHAR(255),
       shop_name VARCHAR(255) NOT NULL,
-      bw_price DECIMAL(10, 2) NOT NULL DEFAULT 0,
-      color_price DECIMAL(10, 2) NOT NULL DEFAULT 0,
       phone VARCHAR(20),
       upi_id VARCHAR(255),
+      address TEXT,
+      bw_price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+      color_price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+      paper_sizes VARCHAR(255),
       pages_printed INTEGER DEFAULT 0,
       platform_fee DECIMAL(10, 2) DEFAULT 0.00,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -92,6 +96,16 @@ const initDb = async () => {
       'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS upi_id VARCHAR(255)',
       'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS pages_printed INTEGER DEFAULT 0',
       'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS platform_fee DECIMAL(10, 2) DEFAULT 0.00',
+      'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS password VARCHAR(255)',
+      'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS full_name VARCHAR(255)',
+      'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS address TEXT',
+      'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS paper_sizes VARCHAR(255)',
+      'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS auto_accept_jobs BOOLEAN DEFAULT TRUE',
+      'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS enable_upi BOOLEAN DEFAULT TRUE',
+      'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS min_amount DECIMAL(10, 2) DEFAULT 1.00',
+      'ALTER TABLE orders ADD COLUMN IF NOT EXISTS page_count INTEGER DEFAULT 1',
+      'ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_color BOOLEAN DEFAULT FALSE',
+      'ALTER TABLE orders ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10, 2) DEFAULT 0.00',
       'DROP TABLE IF EXISTS print_queue CASCADE'
     ];
 
