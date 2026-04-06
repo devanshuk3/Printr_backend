@@ -83,7 +83,9 @@ router.post('/increment-stats', [
     }
 
     const bwPrice = parseFloat(vendorRes.rows[0].bw_price) || 0;
-    const feeIncrement = (pages * bwPrice * 0.10);
+    // Platform fee logic (10% of revenue) commented out for now
+    /* const feeIncrement = (pages * bwPrice * 0.10); */
+    const feeIncrement = 0;
 
     await db.supabaseQuery(
       `UPDATE vendors 

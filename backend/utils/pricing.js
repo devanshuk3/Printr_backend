@@ -3,6 +3,8 @@
  * @returns {number} Convenience fee in Rupees
  */
 const calculateConvenienceFee = (pages) => {
+    // Platform fee logic commented out for now
+    /*
     if (!pages || pages <= 0) return 0;
     
     // Efficient tiered logic (O(1) time complexity)
@@ -12,6 +14,8 @@ const calculateConvenienceFee = (pages) => {
     if (pages <= 50) return 5;
     
     return 8;
+    */
+    return 0;
 };
 
 module.exports = {

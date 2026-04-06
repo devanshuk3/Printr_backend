@@ -148,10 +148,12 @@ const AdminVendorsPage = () => {
                   <Text style={styles.revenueLabel}>Total Gross Revenue</Text>
                   <Text style={styles.grossValue}>₹{grossRevenueAmount.toLocaleString()}</Text>
                 </View>
+                {/* Platform Fee commented out for now 
                 <View style={styles.finalAmountBox}>
                   <Text style={styles.finalLabel}>Platform Fee (10%)</Text>
                   <Text style={styles.finalValue}>₹{formatCurrency(platformFeeAmount)}</Text>
                 </View>
+                */}
               </View>
             </View>
           );

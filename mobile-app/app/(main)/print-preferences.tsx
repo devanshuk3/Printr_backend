@@ -52,12 +52,16 @@ const parsePageRange = (rangeStr: string, maxPages: number) => {
 };
 
 const calculateConvenienceFee = (pages: number): number => {
+     // Platform fee calculation commented out for now
+     /*
      if (!pages || pages <= 0) return 0;
      if (pages <= 2) return 0.5;
      if (pages <= 5) return 1;
      if (pages <= 20) return 3;
      if (pages <= 50) return 5;
      return 8;
+     */
+     return 0;
 };
 
 const getUpiParam = (url: string, param: string) => {
@@ -80,14 +84,14 @@ const PrintSettings = () => {
           hasColor: string
      }>();
      const initialFiles = files ? JSON.parse(files) as Array<{ uri: string, name: string, mimeType: string, needsConversion?: boolean }> : [];
-     const [internalFiles, setInternalFiles] = useState<Array<{ 
-          uri: string, 
-          name: string, 
-          mimeType: string, 
+     const [internalFiles, setInternalFiles] = useState<Array<{
+          uri: string,
+          name: string,
+          mimeType: string,
           needsConversion?: boolean,
           serverPath?: string,
           serverOrderId?: string,
-          pageCount?: number 
+          pageCount?: number
      }>>(initialFiles);
 
      const [copies, setCopies] = useState(1);
@@ -457,7 +461,7 @@ const PrintSettings = () => {
                Alert.alert("Error", "No files selected to print.");
                return;
           }
-          
+
           if (!upiId) {
                Alert.alert("Payment Error", "This vendor has not set up their UPI ID yet. Please contact them directly.");
                return;
@@ -725,10 +729,13 @@ const PrintSettings = () => {
                                              <Text style={styles.summaryRowLabel}>Printing Cost:</Text>
                                              <Text style={styles.summaryRowValue}>₹{(totalCost - convenienceFee).toFixed(2)}</Text>
                                         </View>
+                                        {/* Platform fee row commented out for users */}
+                                        {/* 
                                         <View style={styles.summaryRow}>
                                              <Text style={styles.summaryRowLabel}>Platform Fee:</Text>
                                              <Text style={styles.summaryRowValue}>₹{convenienceFee.toFixed(2)}</Text>
                                         </View>
+                                        */}
                                         <View style={styles.summaryRow}>
                                              <Text style={styles.summaryRowLabel}>Total Amount:</Text>
                                              <Text style={[styles.summaryRowValue, { color: '#1271dd', fontWeight: '800' }]}>₹{pendingAmount}</Text>
