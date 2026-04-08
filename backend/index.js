@@ -127,7 +127,6 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 5000;
 
 // Only start the server if this file is run directly, not when required as a module
-if (require.main === module) {
   app.listen(PORT, async () => {
     console.log(`Server started on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
     
@@ -168,6 +167,5 @@ if (require.main === module) {
       console.log('[Keep-Alive] Self-pinging disabled (Local dev or missing URL).');
     }
   });
-}
 
 module.exports = app;
