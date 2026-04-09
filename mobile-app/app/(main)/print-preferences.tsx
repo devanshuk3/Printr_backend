@@ -51,18 +51,7 @@ const parsePageRange = (rangeStr: string, maxPages: number) => {
      return processedPages.size;
 };
 
-const calculateConvenienceFee = (pages: number): number => {
-     // Platform fee calculation commented out for now
-     /*
-     if (!pages || pages <= 0) return 0;
-     if (pages <= 2) return 0.5;
-     if (pages <= 5) return 1;
-     if (pages <= 20) return 3;
-     if (pages <= 50) return 5;
-     return 8;
-     */
-     return 0;
-};
+// Price calculation is now handled server-side via /api/payment/calculate
 
 const getUpiParam = (url: string, param: string) => {
      const regex = new RegExp(`(?:[?&]|^)${param}=([^&^#]*)`, 'i');
@@ -88,7 +77,7 @@ const PrintSettings = () => {
           uri: string,
           name: string,
           mimeType: string,
-          needsConversion?: boolean,
+          needsConversion?: boolean, 
           serverPath?: string,
           serverOrderId?: string,
           pageCount?: number
@@ -98,7 +87,7 @@ const PrintSettings = () => {
      const [totalPages, setTotalPages] = useState(0);
      const [fullDocPages, setFullDocPages] = useState(0);
      const [totalCost, setTotalCost] = useState(0);
-     const [convenienceFee, setConvenienceFee] = useState(0);
+
      const [isLoadingPages, setIsLoadingPages] = useState(true);
      const [formData, setFormData] = useState({
           colorMode: hasColor === 'true' ? 'Colored' : 'Black & White',
@@ -177,24 +166,50 @@ const PrintSettings = () => {
      }, [formData.pageSelection, formData.customRange, fullDocPages]);
 
      useEffect(() => {
-          const price = formData.colorMode === 'Colored' ? parseFloat(colorPrice || "0") : parseFloat(bwPrice || "0");
+          const fetchPrice = async () => {
+               try {
+                    const { token } = await getAuthData();
+                    const response = await fetch(`${API_URL}/payment/calculate`, {
+                         method: 'POST',
+                         headers: {
+                              'Content-Type': 'application/json',
+                              'x-auth-token': token || ''
+                         },
+                         body: JSON.stringify({
+                              vendorId,
+                              totalPages: fullDocPages,
+                              copies,
+                              colorMode: formData.colorMode,
+                              doubleSided: formData.doubleSided,
+                              pageSelection: formData.pageSelection,
+                              customRange: formData.customRange
+                         })
+                    });
 
-          // Calculate billing workload based on sheets used
-          // If double-sided, every 2 pages fit on 1 sheet. 
-          // Total sheets per copy = Math.ceil(totalPages / 2)
-          const sheetsPerCopy = (formData.doubleSided === 'YES')
-               ? Math.ceil(totalPages / 2)
-               : totalPages;
+                    if (response.ok) {
+                         const data = await response.json();
+                         setTotalCost(data.totalAmount);
+                         if (formData.pageSelection === 'Custom' && data.effectivePages !== undefined) {
+                              setTotalPages(data.effectivePages);
+                         }
+                    } else {
+                         console.warn('Price calculation failed, showing 0');
+                         setTotalCost(0);
+                    }
+               } catch (err) {
+                    console.error('Error fetching price:', err);
+                    setTotalCost(0);
+               }
+               setPendingAmount('0.00');
+          };
 
-          const basePrintingCost = sheetsPerCopy * copies * price;
-
-          const fee = calculateConvenienceFee(totalPages * copies);
-          setConvenienceFee(fee);
-
-          const newBaseCost = basePrintingCost + fee;
-          setTotalCost(newBaseCost);
-          setPendingAmount('0.00');
-     }, [totalPages, copies, formData.colorMode, formData.doubleSided, bwPrice, colorPrice]);
+          if (totalPages > 0 || fullDocPages > 0) {
+               fetchPrice();
+          } else {
+               setTotalCost(0);
+               setPendingAmount('0.00');
+          }
+     }, [totalPages, copies, formData.colorMode, formData.doubleSided, formData.pageSelection, formData.customRange, fullDocPages]);
 
      const handleChange = (field: string, value: string) => {
           setFormData(prev => ({ ...prev, [field]: value }));
@@ -392,7 +407,8 @@ const PrintSettings = () => {
                     },
                     body: JSON.stringify({
                          vendorId: vendorId,
-                         pages: totalPages * copies
+                         pages: totalPages * copies,
+                         totalAmount: parseFloat(pendingAmount) || totalCost
                     })
                });
                if (!statsResponse.ok) console.warn("Failed to update stats on server");
@@ -471,9 +487,41 @@ const PrintSettings = () => {
                return;
           }
 
-          // Use exact amount
-          const finalAmount = totalCost.toFixed(2);
-          setPendingAmount(finalAmount);
+          // Fetch the final authoritative price from the backend before showing payment
+          try {
+               const { token } = await getAuthData();
+               const response = await fetch(`${API_URL}/payment/calculate`, {
+                    method: 'POST',
+                    headers: {
+                         'Content-Type': 'application/json',
+                         'x-auth-token': token || ''
+                    },
+                    body: JSON.stringify({
+                         vendorId,
+                         totalPages: fullDocPages,
+                         copies,
+                         colorMode: formData.colorMode,
+                         doubleSided: formData.doubleSided,
+                         pageSelection: formData.pageSelection,
+                         customRange: formData.customRange
+                    })
+               });
+
+               if (!response.ok) {
+                    Alert.alert("Error", "We couldn't calculate your total. Please try again.");
+                    return;
+               }
+
+               const priceData = await response.json();
+               const finalAmount = priceData.totalAmount.toFixed(2);
+               setTotalCost(priceData.totalAmount);
+               setPendingAmount(finalAmount);
+          } catch (err) {
+               console.error('Checkout price fetch error:', err);
+               Alert.alert("Error", "We couldn't verify the price. Please check your connection.");
+               return;
+          }
+
           setShowPaymentModal(true);
           fetchVendorDetails();
      };
@@ -726,15 +774,8 @@ const PrintSettings = () => {
                                    <View style={styles.paymentSummary}>
                                         <View style={styles.summaryRow}>
                                              <Text style={styles.summaryRowLabel}>Printing Cost:</Text>
-                                             <Text style={styles.summaryRowValue}>₹{(totalCost - convenienceFee).toFixed(2)}</Text>
+                                             <Text style={styles.summaryRowValue}>₹{totalCost.toFixed(2)}</Text>
                                         </View>
-                                        {/* Platform fee row commented out for users */}
-                                        {/* 
-                                        <View style={styles.summaryRow}>
-                                             <Text style={styles.summaryRowLabel}>Platform Fee:</Text>
-                                             <Text style={styles.summaryRowValue}>₹{convenienceFee.toFixed(2)}</Text>
-                                        </View>
-                                        */}
                                         <View style={styles.summaryRow}>
                                              <Text style={styles.summaryRowLabel}>Total Amount:</Text>
                                              <Text style={[styles.summaryRowValue, { color: '#1271dd', fontWeight: '800' }]}>₹{pendingAmount}</Text>

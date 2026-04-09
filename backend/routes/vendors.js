@@ -68,24 +68,30 @@ router.post('/increment-stats', [
   auth, // Require valid token
   body('vendorId').trim().notEmpty().withMessage('Vendor ID is required').escape(),
   body('pages').isInt({ min: 1 }).withMessage('Pages must be at least 1'),
+  body('totalAmount').optional().isFloat({ min: 0 }).withMessage('Total amount must be a non-negative number'),
   validate
 ], async (req, res) => {
-  const { vendorId, pages } = req.body;
+  const { vendorId, pages, totalAmount } = req.body;
 
   try {
-    const vendorRes = await db.supabaseQuery(
-      'SELECT bw_price FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
-      [vendorId]
-    );
+    // Platform fee: 8% of the total order amount
+    const PLATFORM_FEE_PERCENT = 0.08;
+    let feeIncrement = 0;
 
-    if (vendorRes.rows.length === 0) {
-      return res.status(404).json({ message: "Vendor not found" });
+    if (totalAmount && totalAmount > 0) {
+      // Use the backend-calculated totalAmount for accurate fee
+      feeIncrement = totalAmount * PLATFORM_FEE_PERCENT;
+    } else {
+      // Fallback: estimate from pages * bw_price
+      const vendorRes = await db.supabaseQuery(
+        'SELECT bw_price FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
+        [vendorId]
+      );
+      if (vendorRes.rows.length > 0) {
+        const bwPrice = parseFloat(vendorRes.rows[0].bw_price) || 0;
+        feeIncrement = pages * bwPrice * PLATFORM_FEE_PERCENT;
+      }
     }
-
-    const bwPrice = parseFloat(vendorRes.rows[0].bw_price) || 0;
-    // Platform fee logic (10% of revenue) commented out for now
-    /* const feeIncrement = (pages * bwPrice * 0.10); */
-    const feeIncrement = 0;
 
     await db.supabaseQuery(
       `UPDATE vendors 

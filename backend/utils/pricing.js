@@ -1,10 +1,16 @@
 /**
+ * Platform fee percentage (8% of vendor revenue).
+ * Single source of truth — used by payment.js and vendors.js.
+ */
+const PLATFORM_FEE_PERCENT = 0.08;
+
+/**
  * @param {number} pages Total volume of pages in the order (e.g. unique_pages * copies)
  * @returns {number} Convenience fee in Rupees
  */
+// Convenience fee logic — kept for reference, currently disabled
+/*
 const calculateConvenienceFee = (pages) => {
-    // Platform fee logic commented out for now
-    /*
     if (!pages || pages <= 0) return 0;
     
     // Efficient tiered logic (O(1) time complexity)
@@ -14,10 +20,9 @@ const calculateConvenienceFee = (pages) => {
     if (pages <= 50) return 5;
     
     return 8;
-    */
-    return 0;
 };
+*/
 
 module.exports = {
-    calculateConvenienceFee
+    PLATFORM_FEE_PERCENT
 };
