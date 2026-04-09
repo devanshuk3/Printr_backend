@@ -227,7 +227,7 @@ export default function HomePage() {
       if (!contentType || !contentType.includes("application/json")) {
         const text = await response.text();
         console.error("API returned non-JSON response:", text.substring(0, 200));
-        throw new Error("Server returned an invalid response (HTML). Please ensure the backend is running and updated.");
+        throw new Error("We're having trouble connecting to the server. Please check your internet connection and try again.");
       }
 
       const data = await response.json();
@@ -413,7 +413,7 @@ export default function HomePage() {
       }
     } catch (err) {
       console.error("Error picking/storing document:", err);
-      Alert.alert("Error", "Failed to pick or store file.");
+      Alert.alert("Error", "Something went wrong while selecting your files. Please try again.");
     } finally {
       setIsUploading(false);
     }
@@ -471,7 +471,7 @@ export default function HomePage() {
         }
       } catch (err) {
         console.error("Preview error:", err);
-        Alert.alert("Error", "Failed to open the file.");
+        Alert.alert("Error", "We couldn't open the file preview. Please try again or open it directly from your file manager.");
       }
       return;
     }

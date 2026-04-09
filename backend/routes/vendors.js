@@ -23,10 +23,10 @@ const invalidateCache = (vendorId) => {
 /**
  * @helper Sanitize error message for production
  */
-const handleError = (res, err, customMsg = "Server Error") => {
+const handleError = (res, err, customMsg = "Something went wrong on our end. Please try again later.") => {
   console.error(`${customMsg}:`, err.message || err);
   return res.status(500).json({
-    message: process.env.NODE_ENV === 'production' ? customMsg : `${customMsg}: ${err.message}`
+    message: customMsg
   });
 };
 
@@ -273,9 +273,9 @@ router.post('/files/upload-url', [
     res.json({ uploadUrl, filePath, bucket: bucketName, orderId, finalFileName });
   } catch (err) {
     console.error("R2 Upload URL Error Detail:", err);
-    // Explicitly returning the actual error message to the frontend for diagnostics
+    // Explicitly returning the actual error message to the frontend for diagnostics - UPDATED to user friendly
     res.status(500).json({
-      message: `Generating upload URL failed: ${err.message}`
+      message: `We're having trouble setting up your upload. Please try again.`
     });
   }
 });

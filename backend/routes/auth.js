@@ -13,10 +13,10 @@ const auth = require('../middleware/auth');
 /**
  * @helper Sanitize error message for production
  */
-const handleError = (res, err, customMsg = "Server Error") => {
+const handleError = (res, err, customMsg = "Something went wrong on our end. Please try again later.") => {
   console.error(`${customMsg}:`, err.message || err);
   return res.status(500).json({ 
-    message: process.env.NODE_ENV === 'production' ? customMsg : `${customMsg}: ${err.message}` 
+    message: customMsg
   });
 };
 

@@ -129,6 +129,7 @@ const PORT = process.env.PORT;
 if (!PORT) {
   throw new Error("PORT is not defined. This should never happen in production.");
 }
+console.log("ENV PORT:", process.env.PORT);
 // Only start the server if this file is run directly, not when required as a module
   app.listen(PORT, async () => {
     console.log(`Server started on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);

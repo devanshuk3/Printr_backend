@@ -255,7 +255,7 @@ const PrintSettings = () => {
 
                     if (!urlResponse.ok) {
                          const errorData = await urlResponse.json();
-                         throw new Error(errorData.message || "Failed to get upload URL");
+                         throw new Error("We're having trouble starting your upload. Please try again.");
                     }
 
                     const { uploadUrl, filePath } = await urlResponse.json();
@@ -270,7 +270,7 @@ const PrintSettings = () => {
                     });
 
                     if (uploadRes.status < 200 || uploadRes.status >= 300) {
-                         throw new Error(`Cloud storage upload failed (${uploadRes.status})`);
+                         throw new Error("Something went wrong while sending your files. Please check your connection.");
                     }
                     return filePath;
                }));
@@ -325,8 +325,7 @@ const PrintSettings = () => {
                console.log("All files for order " + orderId + " uploaded successfully");
                return uploadResults;
           } catch (error: any) {
-               console.error("Upload to R2 failed:", error);
-               Alert.alert("Upload Failed", error.message);
+               // Error will be handled by the caller
                throw error;
           } finally {
                setIsUploading(false);
@@ -410,7 +409,7 @@ const PrintSettings = () => {
                const response = await fetch(`${API_URL}/vendors/verify/${vendorId}`, {
                     headers: { 'x-auth-token': token || '' }
                });
-               if (!response.ok) throw new Error("Failed to fetch vendor details");
+               if (!response.ok) throw new Error("Could not load vendor information.");
                const data = await response.json();
                if (!data.upi_id) {
                     setUpiError("This vendor has no UPI ID set up.");
@@ -755,18 +754,28 @@ const PrintSettings = () => {
                                    <TouchableOpacity
                                         style={[styles.confirmPaymentBtn, isUploading && { opacity: 0.7 }]}
                                         disabled={isUploading}
-                                        onPress={async () => {
-                                             try {
-                                                  // 1. Upload to R2 first
-                                                  await performUpload();
-                                                  // 2. Complete the process
-                                                  setShowPaymentModal(false);
-                                                  await completePrintJob();
-                                                  handleSuccess();
-                                             } catch (err: any) {
-                                                  Alert.alert("Upload Failed", "Could not upload files to secure storage. Please check your connection.");
-                                             }
-                                        }}
+                                         onPress={() => {
+                                              Alert.alert(
+                                                   "Confirm Payment",
+                                                   "Have you completed the payment? \n\nNote: Please ensure your document formatting is correct, as minor variations may occur during printing.",
+                                                   [
+                                                        { text: "Cancel", style: "cancel" },
+                                                        { 
+                                                             text: "Yes, I have paid", 
+                                                             onPress: async () => {
+                                                                  try {
+                                                                       await performUpload();
+                                                                       setShowPaymentModal(false);
+                                                                       await completePrintJob();
+                                                                       handleSuccess();
+                                                                  } catch (err: any) {
+                                                                       Alert.alert("Upload Failed", "We couldn't send your files to the vendor. Please check your internet connection and try again.");
+                                                                  }
+                                                             } 
+                                                        }
+                                                   ]
+                                              );
+                                         }}
                                    >
                                         {isUploading ? (
                                              <ActivityIndicator color="#ffffff" size="small" />

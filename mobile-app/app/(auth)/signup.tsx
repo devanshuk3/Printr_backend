@@ -52,10 +52,10 @@ export default function SignUp() {
           } catch (error: any) {
                if (error.code === 'DEVELOPER_ERROR') {
                     console.error("Native Google Signup DEVELOPER_ERROR:", error);
-                    Alert.alert("Configuration Issue", "DEVELOPER_ERROR: Please check if your SHA-1 key is registered correctly in Google Cloud Console.");
+                Alert.alert("Registration Issue", "Registration with Google is currently unavailable. Please try using your email or try again later.");
                } else if (error.code !== 'SIGN_IN_CANCELLED') {
                     console.error("Native Google Registration error:", error);
-                    Alert.alert("Registration Failed", `Error: ${error.message}`);
+                    Alert.alert("Registration Failed", "We couldn't register you with Google. Please try again.");
                }
           } finally {
                setLoading(false);
@@ -89,7 +89,7 @@ export default function SignUp() {
                }
           } catch (error: any) {
                console.error("Google Auth error:", error);
-               Alert.alert("Registration Failed", error.message);
+               Alert.alert("Registration Failed", "We couldn't connect to your Google account. Please try again later.");
           } finally {
                setLoading(false);
           }
@@ -133,7 +133,7 @@ export default function SignUp() {
                     data = await response.json();
                } else {
                     const text = await response.text();
-                    throw new Error(text || "Server returned an invalid response");
+                    throw new Error("We're having trouble connecting to the server. Please check your internet connection.");
                }
 
                if (!response.ok) {
@@ -154,7 +154,7 @@ export default function SignUp() {
                router.replace("/home");
           } catch (error: any) {
                console.error("Signup error:", error);
-               Alert.alert("Registration Failed", error.message);
+               Alert.alert("Registration Failed", error.message || "Please check your details and try again.");
           } finally {
                setLoading(false);
           }

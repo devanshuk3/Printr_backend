@@ -22,7 +22,7 @@ export const FilePreviewModal = ({ visible, onClose, fileUri, mimeType }: FilePr
                     dialogTitle: 'Preview PDF'
                });
           } catch (err) {
-               Alert.alert("Error", "Could not open PDF viewer.");
+               Alert.alert("Error", "We couldn't open the PDF viewer. Please make sure you have a PDF app installed.");
           }
      };
 
@@ -67,7 +67,7 @@ export const FilePreviewModal = ({ visible, onClose, fileUri, mimeType }: FilePr
                                                   <Text style={styles.openButtonText}>Open in PDF Viewer</Text>
                                              </TouchableOpacity>
                                              <Text style={styles.subText}>
-                                                  (Android requires a dedicated viewer app)
+                                                  (A PDF viewer app is required to preview this file)
                                              </Text>
                                         </View>
                                    )
