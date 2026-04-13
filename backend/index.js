@@ -83,32 +83,14 @@ const ensureTables = async () => {
 };
 
 // ========== CORS POLICY ==========
-// Allowed origins:
-// - React Native mobile app: does NOT send an Origin header (native HTTP, not a browser) → origin is undefined
-// - Electron production build: loads from file:// with webSecurity:false → origin is "null" or undefined
-// - Electron dev server: Vite on localhost:3000 → origin is "http://localhost:3000"
-// - Backend dev testing: localhost:5000
-const allowedOrigins = [
-  'http://localhost:3000',  // Electron Vite dev server
-  'http://localhost:5000',  // Local backend testing
-];
-
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no Origin header (React Native, Electron production, server-to-server, curl)
-    if (!origin) {
-      return callback(null, true);
-    }
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    return callback(new Error('Not allowed by CORS'));
-  },
-  credentials: true,
-};
+// CORS is intentionally open because both clients bypass browser CORS enforcement:
+// - React Native: Uses native HTTP engine, not a browser — CORS never applies
+// - Electron: Runs with webSecurity:false — Chromium's CORS enforcement is disabled
+// The real security layer is JWT authentication on every protected route.
+// Restricting CORS here would only break legitimate requests without blocking any attacks.
 
 // Middlewares
-app.use(cors(corsOptions));
+app.use(cors());
 app.use(express.json());
 
 // Routes
