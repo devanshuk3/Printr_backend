@@ -407,10 +407,16 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// 3. List Queue (replaces /api/r2/files)
-router.get('/files', async (req, res) => {
+// 3. List Queue (replaces /api/r2/files) (PROTECTED)
+router.get('/files', auth, async (req, res) => {
   const vendorId = req.query.vendor_id;
   if (!vendorId) return res.status(400).json({ message: "vendor_id is required" });
+
+  // Verify the authenticated vendor can only access their own queue
+  const authVendorId = req.user.vendor_id;
+  if (authVendorId && authVendorId.toLowerCase() !== vendorId.toString().toLowerCase().trim()) {
+    return res.status(403).json({ message: "Access denied: You can only view your own queue" });
+  }
 
   try {
     const sanitizedVendorId = vendorId.toLowerCase().trim();
@@ -452,12 +458,21 @@ router.get('/files', async (req, res) => {
   }
 });
 
-// 4. Download (replaces /api/r2/download)
-router.post('/download', async (req, res) => {
+// 4. Download (replaces /api/r2/download) (PROTECTED)
+router.post('/download', auth, async (req, res) => {
   const { file_key, id } = req.body;
   if (!file_key) return res.status(400).json({ message: "file_key is required" });
 
   try {
+    // Verify that the file belongs to the authenticated vendor's folder
+    const authVendorId = req.user.vendor_id;
+    if (authVendorId) {
+      const keyPrefix = file_key.split('/')[0];
+      if (keyPrefix.toLowerCase() !== authVendorId.toLowerCase()) {
+        return res.status(403).json({ message: "Access denied: This file does not belong to your account" });
+      }
+    }
+
     // Check if key is already full path (vendor/file) or just file
     const bucketName = process.env.R2_BUCKET_NAME;
     const command = new GetObjectCommand({
@@ -472,15 +487,24 @@ router.post('/download', async (req, res) => {
   }
 });
 
-// 5. Printed (replaces /api/r2/printed)
-router.post('/printed-legacy', async (req, res) => {
+// 5. Printed (replaces /api/r2/printed) (PROTECTED)
+router.post('/printed-legacy', auth, async (req, res) => {
   const { id } = req.body;
   try {
-    await db.supabaseQuery("UPDATE orders SET status = 'printed' WHERE id = $1", [id]);
+    // Verify the order belongs to this vendor before updating
+    const authVendorId = req.user.vendor_id;
+    const checkRes = await db.supabaseQuery("SELECT vendor_id FROM orders WHERE id = $1", [id]);
     
-    // Fetch vendor_id to invalidate cache
-    const orderRes = await db.supabaseQuery("SELECT vendor_id FROM orders WHERE id = $1", [id]);
-    if (orderRes.rows.length > 0) invalidateCache(orderRes.rows[0].vendor_id);
+    if (checkRes.rows.length === 0) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    if (authVendorId && checkRes.rows[0].vendor_id.toLowerCase() !== authVendorId.toLowerCase()) {
+      return res.status(403).json({ message: "Access denied: This order does not belong to your account" });
+    }
+
+    await db.supabaseQuery("UPDATE orders SET status = 'printed' WHERE id = $1", [id]);
+    invalidateCache(checkRes.rows[0].vendor_id);
 
     res.json({ message: "Status updated to Printed", status: "success" });
   } catch (err) {
@@ -488,17 +512,24 @@ router.post('/printed-legacy', async (req, res) => {
   }
 });
 
-// 6. Delete/Cancel Order (replaces /api/r2/delete)
-router.post('/delete', async (req, res) => {
+// 6. Delete/Cancel Order (replaces /api/r2/delete) (PROTECTED)
+router.post('/delete', auth, async (req, res) => {
   const { id } = req.body;
   try {
-    // We mark as cancelled in orders table instead of deleting metadata if possible, 
-    // or we delete it completely if preferred.
-    await db.supabaseQuery("UPDATE orders SET status = 'cancelled' WHERE id = $1", [id]);
+    // Verify the order belongs to this vendor before cancelling
+    const authVendorId = req.user.vendor_id;
+    const checkRes = await db.supabaseQuery("SELECT vendor_id FROM orders WHERE id = $1", [id]);
     
-    // Invalidate
-    const orderRes = await db.supabaseQuery("SELECT vendor_id FROM orders WHERE id = $1", [id]);
-    if (orderRes.rows.length > 0) invalidateCache(orderRes.rows[0].vendor_id);
+    if (checkRes.rows.length === 0) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    if (authVendorId && checkRes.rows[0].vendor_id.toLowerCase() !== authVendorId.toLowerCase()) {
+      return res.status(403).json({ message: "Access denied: This order does not belong to your account" });
+    }
+
+    await db.supabaseQuery("UPDATE orders SET status = 'cancelled' WHERE id = $1", [id]);
+    invalidateCache(checkRes.rows[0].vendor_id);
 
     res.json({ message: "Order cancelled and removed", status: "success" });
   } catch (err) {

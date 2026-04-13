@@ -82,8 +82,33 @@ const ensureTables = async () => {
   console.log('[Boot] All tables verified.');
 };
 
+// ========== CORS POLICY ==========
+// Allowed origins:
+// - React Native mobile app: does NOT send an Origin header (native HTTP, not a browser) → origin is undefined
+// - Electron production build: loads from file:// with webSecurity:false → origin is "null" or undefined
+// - Electron dev server: Vite on localhost:3000 → origin is "http://localhost:3000"
+// - Backend dev testing: localhost:5000
+const allowedOrigins = [
+  'http://localhost:3000',  // Electron Vite dev server
+  'http://localhost:5000',  // Local backend testing
+];
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no Origin header (React Native, Electron production, server-to-server, curl)
+    if (!origin) {
+      return callback(null, true);
+    }
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+};
+
 // Middlewares
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Routes
@@ -96,8 +121,8 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
-// SYSTEM MAINTENANCE: Endpoint to manually trigger cleanup (vulnerability fix for Render spin-down)
-app.get('/api/system/cleanup', async (req, res) => {
+// SYSTEM MAINTENANCE: Endpoint to manually trigger cleanup (PROTECTED - Admin only)
+app.get('/api/system/cleanup', auth, roleAuth(['admin']), async (req, res) => {
   console.log('[Manual Maintenance] Cleanup triggered via system endpoint.');
   try {
     // 1. Run storage cleanup

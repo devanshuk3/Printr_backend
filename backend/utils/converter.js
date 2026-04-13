@@ -14,9 +14,9 @@ async function convertDocxToPdf(buffer) {
         if (!buffer || buffer.length === 0) {
             throw new Error("Input buffer is empty or undefined");
         }
-        
+
         console.log(`[Converter] Starting DOCX to PDF conversion... Buffer size: ${buffer.length} bytes`);
-        
+
         // 1. Convert DOCX to HTML using mammoth
         console.log('[Converter] Calling mammoth...');
         const { value: html, messages } = await mammoth.convertToHtml({ buffer });
@@ -24,7 +24,7 @@ async function convertDocxToPdf(buffer) {
         if (messages.length > 0) {
             console.log('[Converter] Mammoth messages:', messages.map(m => m.message).join(', '));
         }
-        
+
         // 2. Wrap HTML in basic structure
         const styledHtml = `
             <!DOCTYPE html>
@@ -50,23 +50,23 @@ async function convertDocxToPdf(buffer) {
         browser = await puppeteer.launch({
             headless: 'new',
             args: [
-                '--no-sandbox', 
-                '--disable-setuid-sandbox', 
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
                 '--font-render-hinting=none'
             ]
         });
-        
+
         const page = await browser.newPage();
         console.log('[Converter] Page created.');
-        
-        await page.setContent(styledHtml, { 
+
+        await page.setContent(styledHtml, {
             waitUntil: 'networkidle0',
-            timeout: 30000 
+            timeout: 30000
         });
         console.log('[Converter] Content set.');
-        
+
         const pdfBuffer = await page.pdf({
             format: 'A4',
             margin: { top: '60px', bottom: '60px', left: '60px', right: '60px' },
@@ -86,7 +86,7 @@ async function convertDocxToPdf(buffer) {
     } catch (error) {
         console.error('[Converter] FATAL ERROR:', error);
         if (browser) {
-            try { await browser.close(); } catch (e) {}
+            try { await browser.close(); } catch (e) { }
         }
         throw new Error(`PDF conversion failed: ${error.message}`);
     }
