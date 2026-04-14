@@ -110,6 +110,8 @@ const PrintSettings = () => {
      const [isFetchingVendor, setIsFetchingVendor] = useState(false);
      const [vendorUPI, setVendorUPI] = useState<{ upiId: string, name: string } | null>(null);
      const [upiError, setUpiError] = useState<string | null>(null);
+     const [allocatedOrderIds, setAllocatedOrderIds] = useState<number[]>([]);
+     const [currentUserUsername, setCurrentUserUsername] = useState<string>("User");
 
      useEffect(() => {
           const calculateTotalPages = async () => {
@@ -264,7 +266,8 @@ const PrintSettings = () => {
                               totalPages: totalPages,
                               totalAmount: parseFloat(pendingAmount) || totalCost,
                               isColor: formData.colorMode === 'Colored',
-                              pageCount: file.pageCount || 1
+                              pageCount: file.pageCount || 1,
+                              orderId: allocatedOrderIds[index]
                          })
                     });
 
@@ -273,7 +276,7 @@ const PrintSettings = () => {
                          throw new Error("We're having trouble starting your upload. Please try again.");
                     }
 
-                    const { uploadUrl, filePath } = await urlResponse.json();
+                    const { uploadUrl, filePath, orderId: returnedOrderId } = await urlResponse.json();
 
                     // Use Native FileSystem upload
                     const uploadRes = await FileSystem.uploadAsync(uploadUrl, file.uri, {
@@ -287,6 +290,18 @@ const PrintSettings = () => {
                     if (uploadRes.status < 200 || uploadRes.status >= 300) {
                          throw new Error("Something went wrong while sending your files. Please check your connection.");
                     }
+
+                    // Confirm the upload with the backend to finalize the order
+                    if (returnedOrderId) {
+                         const confirmRes = await fetch(`${API_URL}/vendors/orders/${returnedOrderId}/confirm-upload`, {
+                              method: 'POST',
+                              headers: { 'x-auth-token': token || '' }
+                         });
+                         if (!confirmRes.ok) {
+                              console.warn("Upload confirmation failed but file uploaded:", await confirmRes.text());
+                         }
+                    }
+
                     return filePath;
                }));
 
@@ -454,9 +469,12 @@ const PrintSettings = () => {
                return;
           }
 
-          const amount = parseFloat(pendingAmount).toFixed(2);
-          const note = `[${vendorId}] Print Job`;
-          const params = `pa=${upi}&pn=${encodeURIComponent(name)}&am=${amount}&tn=${encodeURIComponent(note)}&cu=INR`;
+           const { user } = await getAuthData();
+           const username = user?.username || user?.full_name?.split(' ')[0] || "User";
+           const amount = parseFloat(pendingAmount).toFixed(2);
+           const orderSuffix = allocatedOrderIds.length > 0 ? `_Order#${allocatedOrderIds.join(',')}` : '';
+           const note = `${username}${orderSuffix}`;
+           const params = `pa=${upi}&pn=${encodeURIComponent(name)}&am=${amount}&tn=${encodeURIComponent(note)}&cu=INR`;
 
           try {
                await Linking.openURL(`upi://pay?${params}`);
@@ -516,6 +534,35 @@ const PrintSettings = () => {
                const finalAmount = priceData.totalAmount.toFixed(2);
                setTotalCost(priceData.totalAmount);
                setPendingAmount(finalAmount);
+
+               // Pre-allocate Order IDs from backend to include in UPI note
+               const batchResponse = await fetch(`${API_URL}/vendors/orders/batch`, {
+                    method: 'POST',
+                    headers: {
+                         'Content-Type': 'application/json',
+                         'x-auth-token': token || ''
+                    },
+                    body: JSON.stringify({
+                         vendorId,
+                         files: internalFiles.map(f => ({
+                              pageCount: f.pageCount || 1,
+                              totalAmount: priceData.totalAmount / internalFiles.length, // Rough split for record keeping
+                              isColor: formData.colorMode === 'Colored'
+                         }))
+                    })
+               });
+
+               if (batchResponse.ok) {
+                    const batchData = await batchResponse.json();
+                    setAllocatedOrderIds(batchData.orderIds);
+               }
+
+               const { user: authUser } = await getAuthData();
+               if (authUser?.username) {
+                    setCurrentUserUsername(authUser.username);
+               } else if (authUser?.full_name) {
+                    setCurrentUserUsername(authUser.full_name.split(' ')[0]);
+               }
           } catch (err) {
                console.error('Checkout price fetch error:', err);
                Alert.alert("Error", "We couldn't verify the price. Please check your connection.");
@@ -728,7 +775,7 @@ const PrintSettings = () => {
                               <ScrollView contentContainerStyle={styles.modalScroll}>
                                    <View style={styles.qrContainer}>
                                         <QRCode
-                                             value={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(vendorName || "Merchant")}&am=${pendingAmount}&cu=INR&tn=${encodeURIComponent(`Printr Job ${vendorId}`)}`}
+                                             value={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(vendorName || "Merchant")}&am=${pendingAmount}&cu=INR&tn=${encodeURIComponent(`${currentUserUsername}${allocatedOrderIds.length > 0 ? `_Order#${allocatedOrderIds.join(',')}` : ''}`)}`}
                                              size={220}
                                              color="#2e3563"
                                         />
@@ -782,7 +829,7 @@ const PrintSettings = () => {
                                         </View>
                                         <View style={styles.summaryRow}>
                                              <Text style={styles.summaryRowLabel}>Note:</Text>
-                                             <Text style={styles.summaryRowValue} numberOfLines={1}>Printr Job {vendorId}</Text>
+                                             <Text style={styles.summaryRowValue} numberOfLines={1}>{currentUserUsername}{allocatedOrderIds.length > 0 ? `_Order#${allocatedOrderIds.join(',')}` : ''}</Text>
                                         </View>
                                    </View>
 

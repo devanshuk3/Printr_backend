@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const r2 = require('../r2');
-const { GetObjectCommand, PutObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } = require('@aws-sdk/client-s3');
+const { GetObjectCommand, PutObjectCommand, ListObjectsV2Command, DeleteObjectsCommand, HeadObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { param, body } = require('express-validator');
 const { validate } = require('../middleware/validator');
@@ -10,14 +10,29 @@ const auth = require('../middleware/auth');
 const checkRole = require('../middleware/roleAuth');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const { uploadLimiter, queueLimiter } = require('../middleware/rateLimiter');
+
 
 // ── Application-Level Queue Caching (Limits DB requests on dashboard polling) ──
-const queueCache = new Map(); // key: vendor_id, value: { data: [], timestamp: number }
+const queueCache = new Map(); // key: vendor_id, value: { data: [], total: number, timestamp: number }
+const totalCountCache = new Map(); // key: vendor_id, value: { count: number, timestamp: number }
+
+router.use(generalLimiter);
 
 const invalidateCache = (vendorId) => {
   if (!vendorId) return;
-  queueCache.delete(vendorId.toLowerCase().trim());
+  const key = vendorId.toLowerCase().trim();
+  queueCache.delete(key);
+  totalCountCache.delete(key);
   console.log(`[Cache] Invalidated queue for vendor: ${vendorId}`);
+};
+
+/**
+ * @helper Log order status transitions for debugging and analytics
+ */
+const logStatusChange = (orderId, fromStatus, toStatus) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[OrderLog] Order:${orderId} | ${fromStatus} -> ${toStatus} | ${timestamp}`);
 };
 
 /**
@@ -29,6 +44,35 @@ const handleError = (res, err, customMsg = "Something went wrong on our end. Ple
     message: customMsg
   });
 };
+
+/**
+ * @endpoint Initialize a batch of orders before payment/upload
+ */
+router.post('/orders/batch', [auth, uploadLimiter], async (req, res) => {
+  const { vendorId, files } = req.body; 
+  if (!vendorId || !Array.isArray(files)) {
+    return res.status(400).json({ message: "vendorId and files array are required" });
+  }
+
+  try {
+    const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
+    const orderIds = [];
+    
+    for (const file of files) {
+      const orderRes = await db.supabaseQuery(
+        'INSERT INTO orders (user_id, vendor_id, status, page_count, total_amount, is_color) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+        [req.user.id, sanitizedVendorId, 'uploading', file.pageCount || 1, file.totalAmount || 0, file.isColor || false]
+      );
+      const id = orderRes.rows[0].id;
+      logStatusChange(id, 'none', 'uploading');
+      orderIds.push(id);
+    }
+    
+    res.json({ orderIds });
+  } catch (err) {
+    handleError(res, err, "Failed to initiate order batch");
+  }
+});
 
 // Verify Vendor ID (Publicly accessible but sanitized)
 router.get('/verify/:vendorId', [
@@ -189,6 +233,7 @@ router.post('/files/clear-vendor', [
 // Generate a secure Pre-signed URL for UPLOAD (PROTECTED)
 router.post('/files/upload-url', [
   auth,
+  uploadLimiter,
   body('vendorId').trim().notEmpty().matches(/^[a-zA-Z0-9_-]+$/).withMessage('Invalid Vendor ID format'),
   body('fileName').trim().notEmpty().isLength({ max: 100 }).escape(),
   body('contentType').trim().notEmpty().isIn([
@@ -208,9 +253,10 @@ router.post('/files/upload-url', [
   ]).withMessage('Unsupported file type'),
   body('totalPages').optional().isInt().withMessage('totalPages must be an integer'),
   body('totalAmount').optional().isFloat().withMessage('totalAmount must be a number'),
+  body('orderId').optional().isInt().withMessage('orderId must be an integer'),
   validate
 ], async (req, res) => {
-  const { vendorId, fileName, contentType, totalPages, totalAmount, isColor, pageCount } = req.body;
+  const { vendorId, fileName, contentType, totalPages, totalAmount, isColor, pageCount, orderId: existingOrderId } = req.body;
 
   try {
     // 0. Get user's username - with fallback if query/column fails
@@ -224,15 +270,23 @@ router.post('/files/upload-url', [
       console.warn("Could not fetch username (likely column missing), using fallback:", e.message);
     }
 
-    // 1. Create a placeholder in Orders table to get a unique order ID (SKIP FOR JSON PREFERENCES)
+    // 1. Get or create a placeholder in Orders table
     const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
-    let orderId = null;
-    if (contentType !== 'application/json') {
+    let orderId = existingOrderId;
+    
+    if (orderId && contentType !== 'application/json') {
+      // Verify the existing order matches the user
+      const check = await db.supabaseQuery('SELECT id FROM orders WHERE id = $1 AND user_id = $2', [orderId, req.user.id]);
+      if (check.rows.length === 0) {
+        return res.status(403).json({ message: "Invalid orderId provided" });
+      }
+    } else if (contentType !== 'application/json') {
       const orderRes = await db.supabaseQuery(
         'INSERT INTO orders (user_id, vendor_id, status, page_count, total_amount, is_color) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-        [req.user.id, sanitizedVendorId, 'pending', pageCount || 1, totalAmount || 0, isColor || false]
+        [req.user.id, sanitizedVendorId, 'uploading', pageCount || 1, totalAmount || 0, isColor || false]
       );
       orderId = orderRes.rows[0].id;
+      logStatusChange(orderId, 'none', 'uploading');
     } else {
       // For JSON preferences, we generate a random temporary numeric ID if one isn't provided
       orderId = Date.now().toString().slice(-8);
@@ -266,16 +320,14 @@ router.post('/files/upload-url', [
 
     // 5. Removed Print Queue usage as per user request
 
-    // 5. Invalidate the dashboard cache for this vendor to show the new order immediately
-    invalidateCache(vendorId);
-
+    // Cache invalidation moved to confirm-upload instead of on URL generation
     const command = new PutObjectCommand({
       Bucket: bucketName,
       Key: filePath,
       ContentType: contentType, // Sign the content type
     });
 
-    const uploadUrl = await getSignedUrl(r2, command, { expiresIn: 600 });
+    const uploadUrl = await getSignedUrl(r2, command, { expiresIn: 300 }); // 5 minutes is plenty to start an upload
     res.json({ uploadUrl, filePath, bucket: bucketName, orderId, finalFileName });
   } catch (err) {
     console.error("R2 Upload URL Error Detail:", err);
@@ -283,6 +335,64 @@ router.post('/files/upload-url', [
     res.status(500).json({
       message: `We're having trouble setting up your upload. Please try again.`
     });
+  }
+});
+
+// Confirm that an upload was completely successful
+router.post('/orders/:id/confirm-upload', [auth, uploadLimiter], async (req, res) => {
+  const { id } = req.params;
+  try {
+    // 1. Get order details to check file
+    const orderCheck = await db.supabaseQuery(
+      'SELECT vendor_id, file_name, status FROM orders WHERE id = $1 AND user_id = $2',
+      [id, req.user.id]
+    );
+
+    if (orderCheck.rows.length === 0) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    const { vendor_id, file_name, status } = orderCheck.rows[0];
+
+    // Idempotency check: If already confirmed as pending, return success immediately
+    if (status === 'pending') {
+      return res.json({ success: true, message: "Order already confirmed" });
+    }
+
+    if (status !== 'uploading') {
+      return res.status(400).json({ message: `Order cannot be confirmed from its current status: ${status}` });
+    }
+
+    const sanitizedVendorId = vendor_id.toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
+    const objectKey = `${sanitizedVendorId}/${file_name}`;
+    const bucketName = process.env.R2_BUCKET_NAME ? process.env.R2_BUCKET_NAME.trim() : '';
+
+    // 2. Server-side verification: Check if file actually exists in R2
+    try {
+      const headData = await r2.send(new HeadObjectCommand({ Bucket: bucketName, Key: objectKey }));
+      
+      // Verification: Prevent massive file uploads (e.g., > 70MB) from being finalized
+      if (headData.ContentLength && headData.ContentLength > 70 * 1024 * 1024) {
+          return res.status(400).json({ message: "File is too large for printing (Max 70MB)" });
+      }
+    } catch (headErr) {
+      console.warn("Confirm upload failed: file not found in R2 for key:", objectKey);
+      return res.status(400).json({ message: "File upload could not be verified on the server." });
+    }
+
+    // 3. Update status
+    const result = await db.supabaseQuery(`
+      UPDATE orders SET status = 'pending', updated_at = NOW() 
+      WHERE id = $1
+      RETURNING vendor_id
+    `, [id]);
+
+    logStatusChange(id, status, 'pending');
+
+    invalidateCache(result.rows[0].vendor_id);
+    res.json({ success: true, message: "Order confirmed successfully" });
+  } catch (err) {
+    handleError(res, err, "Confirming order upload failed");
   }
 });
 
@@ -295,7 +405,7 @@ router.get('/files/history', auth, async (req, res) => {
          FROM orders o
          LEFT JOIN uploaded_files f ON o.file_name = f.file_name
          LEFT JOIN vendors v ON LOWER(o.vendor_id) = LOWER(v.vendor_id)
-         WHERE o.user_id = $1 AND o.file_name NOT LIKE '%.json'
+         WHERE o.user_id = $1 AND o.file_name NOT LIKE '%.json' AND o.status != 'uploading'
          
          UNION ALL
          
@@ -303,7 +413,7 @@ router.get('/files/history', auth, async (req, res) => {
          FROM archived_orders a
          LEFT JOIN uploaded_files f ON a.file_name = f.file_name
          LEFT JOIN vendors v ON LOWER(a.vendor_id) = LOWER(v.vendor_id)
-         WHERE a.user_id = $1 AND a.file_name NOT LIKE '%.json'
+         WHERE a.user_id = $1 AND a.file_name NOT LIKE '%.json' AND a.status != 'uploading'
        ) as combined_history
        ORDER BY uploaded_at DESC
        LIMIT 50`,
@@ -418,7 +528,7 @@ router.post('/register', async (req, res) => {
 });
 
 // 3. List Queue (replaces /api/r2/files) (PROTECTED)
-router.get('/files', auth, async (req, res) => {
+router.get('/files', [auth, queueLimiter], async (req, res) => {
   const vendorId = req.query.vendor_id;
   if (!vendorId) return res.status(400).json({ message: "vendor_id is required" });
 
@@ -430,11 +540,31 @@ router.get('/files', auth, async (req, res) => {
 
   try {
     const sanitizedVendorId = vendorId.toLowerCase().trim();
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = parseInt(req.query.offset) || 0;
+    const cursor = req.query.cursor; // Timestamp for cursor-based pagination
     
-    // Check Cache First (30 second buffer)
-    const cached = queueCache.get(sanitizedVendorId);
-    if (cached && (Date.now() - cached.timestamp < 30000)) { // 30s TTL
-        return res.json({ files: cached.data });
+    // Check Cache First (30 second buffer) - Only for first page without cursor
+    if (offset === 0 && !cursor && limit === 20) {
+      const cached = queueCache.get(sanitizedVendorId);
+      if (cached && (Date.now() - cached.timestamp < 30000)) { // 30s TTL
+          return res.json({ files: cached.data, total: cached.total, limit, offset });
+      }
+    }
+
+    // Fetch Total Count for pagination (Cached for 20s to optimize scale)
+    let totalCount;
+    const countCached = totalCountCache.get(sanitizedVendorId);
+    if (countCached && (Date.now() - countCached.timestamp < 20000)) {
+        totalCount = countCached.count;
+    } else {
+        const countRes = await db.supabaseQuery(`
+          SELECT COUNT(*) FROM orders 
+          WHERE LOWER(vendor_id) = LOWER($1) 
+          AND status NOT IN ('completed', 'cancelled', 'printed', 'rejected', 'uploading', 'failed')
+        `, [sanitizedVendorId]);
+        totalCount = parseInt(countRes.rows[0].count);
+        totalCountCache.set(sanitizedVendorId, { count: totalCount, timestamp: Date.now() });
     }
 
     // Fetch from Database
@@ -453,16 +583,30 @@ router.get('/files', auth, async (req, res) => {
       LEFT JOIN users u ON o.user_id = u.id
       LEFT JOIN uploaded_files f ON o.file_name = f.file_name
       WHERE LOWER(o.vendor_id) = LOWER($1) 
-        AND o.status NOT IN ('completed', 'cancelled', 'printed', 'rejected')
+        AND o.status NOT IN ('completed', 'cancelled', 'printed', 'rejected', 'uploading')
         AND o.file_name NOT LIKE '%.xml'
-      ORDER BY o.created_at DESC`,
-      [sanitizedVendorId]
+        ${cursor ? 'AND o.created_at < $4' : ''}
+      ORDER BY o.created_at DESC
+      LIMIT $2 OFFSET $3`,
+      cursor ? [sanitizedVendorId, limit, offset, cursor] : [sanitizedVendorId, limit, offset]
     );
 
-    // Save to Cache
-    queueCache.set(sanitizedVendorId, { data: result.rows, timestamp: Date.now() });
+    // Save to Cache ONLY for first page
+    if (offset === 0 && !cursor && limit === 20) {
+      queueCache.set(sanitizedVendorId, { data: result.rows, total: totalCount, timestamp: Date.now() });
+    }
+    
+    const lastItem = result.rows[result.rows.length - 1];
+    const nextCursor = lastItem ? lastItem.created_at : null;
 
-    res.json({ files: result.rows });
+    res.json({ 
+      files: result.rows,
+      total: totalCount,
+      limit,
+      offset,
+      nextCursor,
+      hasMore: (offset + result.rows.length < totalCount)
+    });
   } catch (err) {
     handleError(res, err, "Fetching vendor queue failed");
   }
@@ -513,7 +657,13 @@ router.post('/printed-legacy', auth, async (req, res) => {
       return res.status(403).json({ message: "Access denied: This order does not belong to your account" });
     }
 
-    await db.supabaseQuery("UPDATE orders SET status = 'printed' WHERE id = $1", [id]);
+    const oldStatus = checkRes.rows[0].status;
+    if (oldStatus === 'printed') {
+      return res.json({ message: "Order already marked as printed", status: "success" });
+    }
+    
+    await db.supabaseQuery("UPDATE orders SET status = 'printed', updated_at = NOW() WHERE id = $1", [id]);
+    logStatusChange(id, oldStatus, 'printed');
     invalidateCache(checkRes.rows[0].vendor_id);
 
     res.json({ message: "Status updated to Printed", status: "success" });
@@ -551,6 +701,7 @@ router.post('/delete', auth, async (req, res) => {
     ]);
     
     await db.supabaseQuery("DELETE FROM orders WHERE id = $1", [id]);
+    logStatusChange(id, orderData.status, 'cancelled (archived)');
 
     invalidateCache(orderData.vendor_id);
 
@@ -758,7 +909,7 @@ router.post('/update-order-status', [
   try {
     // Ensure the order belongs to this vendor
     const checkRes = await db.supabaseQuery(
-      'SELECT vendor_id FROM orders WHERE id = $1',
+      'SELECT vendor_id, status FROM orders WHERE id = $1',
       [orderId]
     );
 
@@ -770,10 +921,17 @@ router.post('/update-order-status', [
       return res.status(403).json({ message: "Access denied to this order" });
     }
 
+    const oldStatus = checkRes.rows[0].status;
+    if (oldStatus === status) {
+      return res.json({ success: true, message: `Order already marked as ${status}` });
+    }
+    
     await db.supabaseQuery(
-      'UPDATE orders SET status = $1 WHERE id = $2',
+      'UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2',
       [status, orderId]
     );
+    
+    logStatusChange(orderId, oldStatus, status);
 
     invalidateCache(vendorIdFromAuth);
 

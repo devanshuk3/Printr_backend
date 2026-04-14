@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS orders (
     page_count INTEGER,
     total_amount DECIMAL(10, 2),
     is_color BOOLEAN,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS archived_orders (

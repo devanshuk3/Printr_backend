@@ -76,6 +76,12 @@ const cleanupDatabaseHistory = async () => {
       AND uploaded_at <= NOW() - INTERVAL '1 hour'
     `);
 
+    // 1.5 Delete abandoned 'uploading' orders after 30 minutes
+    const abandonedRes = await db.supabaseQuery(`
+      DELETE FROM orders 
+      WHERE status = 'uploading' AND created_at <= NOW() - INTERVAL '30 minutes'
+    `);
+
     // 2. Move old order records to archived_orders after 1 hour, then delete
     await db.supabaseQuery(`
       INSERT INTO archived_orders (original_id, user_id, vendor_id, status, page_count, total_amount, is_color, file_name, created_at, archived_at)
