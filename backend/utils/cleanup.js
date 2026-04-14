@@ -76,7 +76,14 @@ const cleanupDatabaseHistory = async () => {
       AND uploaded_at <= NOW() - INTERVAL '1 hour'
     `);
 
-    // 2. Delete old order records after 1 hour
+    // 2. Move old order records to archived_orders after 1 hour, then delete
+    await db.supabaseQuery(`
+      INSERT INTO archived_orders (original_id, user_id, vendor_id, status, page_count, total_amount, is_color, file_name, created_at, archived_at)
+      SELECT id, user_id, vendor_id, status, page_count, total_amount, is_color, file_name, created_at, NOW()
+      FROM orders 
+      WHERE created_at <= NOW() - INTERVAL '1 hour'
+    `);
+
     const orderRes = await db.supabaseQuery(`
       DELETE FROM orders 
       WHERE created_at <= NOW() - INTERVAL '1 hour'

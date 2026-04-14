@@ -38,7 +38,24 @@ CREATE TABLE IF NOT EXISTS orders (
     vendor_id VARCHAR(50) NOT NULL,
     file_name VARCHAR(255),
     status VARCHAR(50) DEFAULT 'pending',
+    page_count INTEGER,
+    total_amount DECIMAL(10, 2),
+    is_color BOOLEAN,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS archived_orders (
+    id SERIAL PRIMARY KEY,
+    original_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    vendor_id VARCHAR(50) NOT NULL,
+    file_name VARCHAR(255),
+    status VARCHAR(50),
+    page_count INTEGER,
+    total_amount DECIMAL(10, 2),
+    is_color BOOLEAN,
+    created_at TIMESTAMP,
+    archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS uploaded_files (

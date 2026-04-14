@@ -290,12 +290,22 @@ router.post('/files/upload-url', [
 router.get('/files/history', auth, async (req, res) => {
   try {
     const historyRes = await db.supabaseQuery(
-      `SELECT o.file_name, o.created_at as uploaded_at, o.status, f.deleted_at, v.shop_name
-       FROM orders o
-       LEFT JOIN uploaded_files f ON o.file_name = f.file_name
-       LEFT JOIN vendors v ON LOWER(o.vendor_id) = LOWER(v.vendor_id)
-       WHERE o.user_id = $1 AND o.file_name NOT LIKE '%.json'
-       ORDER BY o.created_at DESC
+      `SELECT * FROM (
+         SELECT o.file_name, o.created_at as uploaded_at, o.status, f.deleted_at, v.shop_name
+         FROM orders o
+         LEFT JOIN uploaded_files f ON o.file_name = f.file_name
+         LEFT JOIN vendors v ON LOWER(o.vendor_id) = LOWER(v.vendor_id)
+         WHERE o.user_id = $1 AND o.file_name NOT LIKE '%.json'
+         
+         UNION ALL
+         
+         SELECT a.file_name, a.created_at as uploaded_at, a.status, f.deleted_at, v.shop_name
+         FROM archived_orders a
+         LEFT JOIN uploaded_files f ON a.file_name = f.file_name
+         LEFT JOIN vendors v ON LOWER(a.vendor_id) = LOWER(v.vendor_id)
+         WHERE a.user_id = $1 AND a.file_name NOT LIKE '%.json'
+       ) as combined_history
+       ORDER BY uploaded_at DESC
        LIMIT 50`,
       [req.user.id]
     );
@@ -518,20 +528,33 @@ router.post('/delete', auth, async (req, res) => {
   try {
     // Verify the order belongs to this vendor before cancelling
     const authVendorId = req.user.vendor_id;
-    const checkRes = await db.supabaseQuery("SELECT vendor_id FROM orders WHERE id = $1", [id]);
+    const checkRes = await db.supabaseQuery("SELECT * FROM orders WHERE id = $1", [id]);
     
     if (checkRes.rows.length === 0) {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    if (authVendorId && checkRes.rows[0].vendor_id.toLowerCase() !== authVendorId.toLowerCase()) {
+    const orderData = checkRes.rows[0];
+
+    if (authVendorId && orderData.vendor_id.toLowerCase() !== authVendorId.toLowerCase()) {
       return res.status(403).json({ message: "Access denied: This order does not belong to your account" });
     }
 
-    await db.supabaseQuery("UPDATE orders SET status = 'cancelled' WHERE id = $1", [id]);
-    invalidateCache(checkRes.rows[0].vendor_id);
+    // Move to archived_orders instead of just changing status inside orders directly
+    await db.supabaseQuery(`
+      INSERT INTO archived_orders (original_id, user_id, vendor_id, status, page_count, total_amount, is_color, file_name, created_at, archived_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+    `, [
+      orderData.id, orderData.user_id, orderData.vendor_id, 'cancelled',
+      orderData.page_count, orderData.total_amount, orderData.is_color,
+      orderData.file_name, orderData.created_at
+    ]);
+    
+    await db.supabaseQuery("DELETE FROM orders WHERE id = $1", [id]);
 
-    res.json({ message: "Order cancelled and removed", status: "success" });
+    invalidateCache(orderData.vendor_id);
+
+    res.json({ message: "Order cancelled and archived", status: "success" });
   } catch (err) {
     handleError(res, err, "Order cancellation failed");
   }
@@ -688,16 +711,30 @@ router.get('/activity-log', auth, async (req, res) => {
   const vendorIdFromAuth = req.user.vendor_id;
   try {
     const result = await db.supabaseQuery(`
-      SELECT 
-        o.id, 
-        o.status, 
-        o.created_at,
-        u.full_name as customer_name
-      FROM orders o
-      LEFT JOIN users u ON o.user_id = u.id
-      WHERE LOWER(o.vendor_id) = LOWER($1) 
-        AND o.status IN ('completed', 'cancelled', 'printed', 'rejected')
-      ORDER BY o.created_at DESC
+      SELECT * FROM (
+        SELECT 
+          o.id, 
+          o.status, 
+          o.created_at,
+          u.full_name as customer_name
+        FROM orders o
+        LEFT JOIN users u ON o.user_id = u.id
+        WHERE LOWER(o.vendor_id) = LOWER($1) 
+          AND o.status IN ('completed', 'cancelled', 'printed', 'rejected')
+          
+        UNION ALL
+        
+        SELECT 
+          a.original_id as id, 
+          a.status, 
+          a.created_at,
+          u.full_name as customer_name
+        FROM archived_orders a
+        LEFT JOIN users u ON a.user_id = u.id
+        WHERE LOWER(a.vendor_id) = LOWER($1) 
+          AND a.status IN ('completed', 'cancelled', 'printed', 'rejected')
+      ) as combined_activity
+      ORDER BY created_at DESC
       LIMIT 20`,
       [vendorIdFromAuth]
     );
