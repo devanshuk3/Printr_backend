@@ -470,10 +470,9 @@ const PrintSettings = () => {
           }
 
            const { user } = await getAuthData();
-           const username = user?.username || user?.full_name?.split(' ')[0] || "User";
+           const username = user?.username || user?.fullName?.split(' ')[0] || "User";
            const amount = parseFloat(pendingAmount).toFixed(2);
-           const orderSuffix = allocatedOrderIds.length > 0 ? `_Order#${allocatedOrderIds.join(',')}` : '';
-           const note = `${username}${orderSuffix}`;
+           const note = allocatedOrderIds.length > 0 ? `Order#${allocatedOrderIds.join(',')}` : username;
            const params = `pa=${upi}&pn=${encodeURIComponent(name)}&am=${amount}&tn=${encodeURIComponent(note)}&cu=INR`;
 
           try {
@@ -560,8 +559,8 @@ const PrintSettings = () => {
                const { user: authUser } = await getAuthData();
                if (authUser?.username) {
                     setCurrentUserUsername(authUser.username);
-               } else if (authUser?.full_name) {
-                    setCurrentUserUsername(authUser.full_name.split(' ')[0]);
+               } else if (authUser?.fullName) {
+                    setCurrentUserUsername(authUser.fullName.split(' ')[0]);
                }
           } catch (err) {
                console.error('Checkout price fetch error:', err);
@@ -775,7 +774,7 @@ const PrintSettings = () => {
                               <ScrollView contentContainerStyle={styles.modalScroll}>
                                    <View style={styles.qrContainer}>
                                         <QRCode
-                                             value={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(vendorName || "Merchant")}&am=${pendingAmount}&cu=INR&tn=${encodeURIComponent(`${currentUserUsername}${allocatedOrderIds.length > 0 ? `_Order#${allocatedOrderIds.join(',')}` : ''}`)}`}
+                                             value={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(vendorName || "Merchant")}&am=${pendingAmount}&cu=INR&tn=${encodeURIComponent(allocatedOrderIds.length > 0 ? `Order#${allocatedOrderIds.join(',')}` : (currentUserUsername || "User"))}`}
                                              size={220}
                                              color="#2e3563"
                                         />
@@ -845,7 +844,7 @@ const PrintSettings = () => {
                                          onPress={() => {
                                               Alert.alert(
                                                    "Confirm Payment",
-                                                   "Have you completed the payment? \n\nNote: Please ensure your document formatting is correct, as minor variations may occur during printing.",
+                                                       "Note: Your order will be rejected if payment is not completed. Please also ensure your document formatting is correct, as minor variations may occur during printing.",
                                                    [
                                                         { text: "Cancel", style: "cancel" },
                                                         { 

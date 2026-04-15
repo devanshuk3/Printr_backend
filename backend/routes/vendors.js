@@ -10,7 +10,7 @@ const auth = require('../middleware/auth');
 const checkRole = require('../middleware/roleAuth');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
-const { uploadLimiter, queueLimiter } = require('../middleware/rateLimiter');
+const { generalLimiter, uploadLimiter, queueLimiter } = require('../middleware/rateLimiter');
 
 
 // ── Application-Level Queue Caching (Limits DB requests on dashboard polling) ──
@@ -758,12 +758,14 @@ router.put('/settings', [
   body('min_amount').optional().isFloat({ min: 0 }),
   body('has_bw_printer').optional().isBoolean(),
   body('has_color_printer').optional().isBoolean(),
+  body('bw_printer').optional().trim().escape(),
+  body('color_printer').optional().trim().escape(),
   validate
 ], async (req, res) => {
   const { 
     shop_name, bw_price, color_price, upi_id, 
     auto_accept_jobs, enable_upi, min_amount,
-    has_bw_printer, has_color_printer
+    has_bw_printer, has_color_printer, bw_printer, color_printer
   } = req.body;
 
   const vendorIdFromAuth = req.user.vendor_id;
@@ -810,6 +812,14 @@ router.put('/settings', [
       updates.push(`has_color_printer = $${paramCounter++}`);
       values.push(has_color_printer);
     }
+    if (req.body.bw_printer !== undefined) {
+      updates.push(`bw_printer = $${paramCounter++}`);
+      values.push(req.body.bw_printer);
+    }
+    if (req.body.color_printer !== undefined) {
+      updates.push(`color_printer = $${paramCounter++}`);
+      values.push(req.body.color_printer);
+    }
 
     if (updates.length === 0) {
       return res.status(400).json({ message: "No settings provided to update" });
@@ -843,7 +853,7 @@ router.get('/settings/me', auth, async (req, res) => {
   const vendorIdFromAuth = req.user.vendor_id;
   try {
     const result = await db.supabaseQuery(
-      'SELECT shop_name, bw_price, color_price, upi_id, auto_accept_jobs, enable_upi, min_amount, has_bw_printer, has_color_printer FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
+      'SELECT shop_name, bw_price, color_price, upi_id, auto_accept_jobs, enable_upi, min_amount, has_bw_printer, has_color_printer, bw_printer, color_printer FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
       [vendorIdFromAuth]
     );
 
