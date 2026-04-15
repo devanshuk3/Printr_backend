@@ -93,7 +93,7 @@ const allowedOrigins = [
   'http://localhost:5000',  // Local backend testing
   'http://127.0.0.1:3000',
   'http://127.0.0.1:5000',
-  'http://printr-backend.ornrender.com'
+  'https://printr-backend.onrender.com'
 ];
 
 const corsOptions = {
