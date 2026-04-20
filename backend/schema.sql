@@ -78,5 +78,6 @@ CREATE TABLE IF NOT EXISTS email_otps (
     otp_hash TEXT NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
     used BOOLEAN DEFAULT false,
+    attempts INTEGER DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT now()
 );

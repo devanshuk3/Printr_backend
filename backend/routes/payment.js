@@ -4,6 +4,9 @@ const db = require('../db');
 const auth = require('../middleware/auth');
 const { body } = require('express-validator');
 const { validate } = require('../middleware/validator');
+const { generalLimiter } = require('../middleware/rateLimiter');
+
+router.use(generalLimiter);
 
 /**
  * Platform fee percentage charged to vendors (8% of printing cost).

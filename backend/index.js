@@ -7,6 +7,7 @@ const db = require('./db');
 const { startCleanupTask, cleanupOldFiles, cleanupDatabaseHistory, cleanupCompletedJobs } = require('./utils/cleanup');
 const auth = require('./middleware/auth');
 const roleAuth = require('./middleware/roleAuth');
+const helmet = require('helmet');
 require('dotenv').config();
 
 const app = express();
@@ -73,6 +74,7 @@ const ensureTables = async () => {
       otp_hash TEXT NOT NULL,
       expires_at TIMESTAMPTZ NOT NULL,
       used BOOLEAN DEFAULT false,
+      attempts INTEGER DEFAULT 0,
       created_at TIMESTAMPTZ DEFAULT now()
     )`,
     `CREATE INDEX IF NOT EXISTS idx_orders_vendor_id_status ON orders (LOWER(vendor_id), status)`,
@@ -117,8 +119,9 @@ const corsOptions = {
 };
 
 // Middlewares
+app.use(helmet());
 app.use(cors(corsOptions));
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 
 // Routes
 app.use('/api/auth', require('./routes/auth'));

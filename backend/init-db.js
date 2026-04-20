@@ -72,6 +72,7 @@ const initDb = async () => {
       otp_hash TEXT NOT NULL,
       expires_at TIMESTAMPTZ NOT NULL,
       used BOOLEAN DEFAULT false,
+      attempts INTEGER DEFAULT 0,
       created_at TIMESTAMPTZ DEFAULT now()
     );
   `;
@@ -131,6 +132,7 @@ const initDb = async () => {
       'ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_color BOOLEAN DEFAULT FALSE',
       'ALTER TABLE orders ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10, 2) DEFAULT 0.00',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false',
+      'ALTER TABLE email_otps ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0',
       'DROP TABLE IF EXISTS print_queue CASCADE'
     ];
 

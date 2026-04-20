@@ -1,11 +1,26 @@
-const rateLimit = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 
 /**
- * Key generator that prioritizes User ID for authenticated sessions
+ * Key generator that prioritizes User ID for authenticated sessions,
+ * falls back to normalized IP via ipKeyGenerator for IPv6 safety
  */
 const userKeyGenerator = (req) => {
-  return req.user ? `user_${req.user.id}` : req.ip;
+  if (req.user) return `user_${req.user.id}`;
+  return ipKeyGenerator(req);
 };
+
+/**
+ * Strict limiter for authentication endpoints (login, register, OTP, Google auth)
+ * Keyed by IP only — these endpoints are hit before authentication
+ */
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,                   // 10 attempts per window
+  keyGenerator: ipKeyGenerator,
+  message: { message: "Too many authentication attempts. Please try again in 15 minutes." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 /**
  * General rate limiter for standard API endpoints
@@ -44,6 +59,7 @@ const queueLimiter = rateLimit({
 });
 
 module.exports = {
+  authLimiter,
   generalLimiter,
   uploadLimiter,
   queueLimiter

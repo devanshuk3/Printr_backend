@@ -10,7 +10,7 @@ const auth = require('../middleware/auth');
 const checkRole = require('../middleware/roleAuth');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
-const { generalLimiter, uploadLimiter, queueLimiter } = require('../middleware/rateLimiter');
+const { generalLimiter, uploadLimiter, queueLimiter, authLimiter } = require('../middleware/rateLimiter');
 
 
 // ── Application-Level Queue Caching (Limits DB requests on dashboard polling) ──
@@ -458,7 +458,12 @@ router.get('/files/history', auth, async (req, res) => {
 // ============================================================================
 
 // 1. Vendor Login (Compatibility for Auth.tsx)
-router.post('/login', async (req, res) => {
+router.post('/login', [
+  authLimiter,
+  body('vendor_id').trim().notEmpty().withMessage('Vendor ID is required').escape(),
+  body('password').notEmpty().withMessage('Password is required'),
+  validate
+], async (req, res) => {
   const { vendor_id, password } = req.body;
   try {
     const result = await db.supabaseQuery(
@@ -467,7 +472,7 @@ router.post('/login', async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(401).json({ success: false, message: "Vendor not found" });
+      return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
     const vendor = result.rows[0];
@@ -492,7 +497,19 @@ router.post('/login', async (req, res) => {
 });
 
 // 2. Vendor Registration
-router.post('/register', async (req, res) => {
+router.post('/register', [
+  authLimiter,
+  body('vendor_id').trim().notEmpty().withMessage('Vendor ID is required').isAlphanumeric().withMessage('Vendor ID must be alphanumeric').escape(),
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  body('full_name').trim().notEmpty().withMessage('Full name is required').escape(),
+  body('shop_name').trim().notEmpty().withMessage('Shop name is required').escape(),
+  body('phone').optional().trim().escape(),
+  body('upi_id').optional().trim().escape(),
+  body('address').optional().trim().escape(),
+  body('bw_price').optional().isFloat({ min: 0 }).withMessage('BW price must be non-negative'),
+  body('color_price').optional().isFloat({ min: 0 }).withMessage('Color price must be non-negative'),
+  validate
+], async (req, res) => {
   const data = req.body;
   try {
     const query = `

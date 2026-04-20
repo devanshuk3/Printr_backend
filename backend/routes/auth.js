@@ -9,8 +9,11 @@ const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const { body } = require('express-validator');
 const { validate } = require('../middleware/validator');
 const auth = require('../middleware/auth');
+const { authLimiter } = require('../middleware/rateLimiter');
 const { generateOTP, hashToken } = require('../utils/otp');
 const { sendOTPEmail } = require('../utils/mailer');
+
+const MAX_OTP_ATTEMPTS = 5;
 
 /**
  * @helper Sanitize error message for production
@@ -24,6 +27,7 @@ const handleError = (res, err, customMsg = "Something went wrong on our end. Ple
 
 // Register
 router.post('/register', [
+  authLimiter,
   body('fullName').trim().notEmpty().withMessage('Full name is required').escape(),
   body('email').isEmail().withMessage('Invalid email address').normalizeEmail().trim(),
   body('username').trim().notEmpty().withMessage('Username is required').isLength({ min: 3 }).withMessage('Username must be at least 3 characters long').escape(),
@@ -88,6 +92,7 @@ router.post('/register', [
 
 // Login
 router.post('/login', [
+  authLimiter,
   body('identifier').trim().notEmpty().withMessage('Email or username is required').escape(),
   body('password').notEmpty().withMessage('Password is required'),
   validate
@@ -181,6 +186,7 @@ router.delete('/account', auth, async (req, res) => {
 
 // Google Login
 router.post('/google', [
+  authLimiter,
   body('idToken').notEmpty().withMessage('ID Token is required'),
   validate
 ], async (req, res) => {
@@ -282,6 +288,7 @@ router.get('/user/:username', [
 
 // Verify email with OTP
 router.post('/verify-email', [
+  authLimiter,
   body('userId').notEmpty().withMessage('User ID is required'),
   body('otp').trim().notEmpty().withMessage('OTP is required').isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits'),
   validate
@@ -290,19 +297,36 @@ router.post('/verify-email', [
     const { userId, otp } = req.body;
     const otpHash = hashToken(otp);
 
-    const result = await db.query(
+    // Fetch the latest unused OTP for this user
+    const otpRecord = await db.query(
       `SELECT * FROM email_otps
-       WHERE user_id = $1 AND otp_hash = $2 AND used = false AND expires_at > now()
+       WHERE user_id = $1 AND used = false AND expires_at > now()
        ORDER BY created_at DESC LIMIT 1`,
-      [userId, otpHash]
+      [userId]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid or expired code' });
+    if (otpRecord.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid or expired code. Please request a new one.' });
+    }
+
+    const record = otpRecord.rows[0];
+
+    // Check if max attempts exceeded
+    if (record.attempts >= MAX_OTP_ATTEMPTS) {
+      await db.query('UPDATE email_otps SET used = true WHERE id = $1', [record.id]);
+      return res.status(429).json({ error: 'Too many failed attempts. Please request a new code.' });
+    }
+
+    // Check if OTP matches
+    if (record.otp_hash !== otpHash) {
+      // Increment failed attempt counter
+      await db.query('UPDATE email_otps SET attempts = attempts + 1 WHERE id = $1', [record.id]);
+      const remaining = MAX_OTP_ATTEMPTS - record.attempts - 1;
+      return res.status(401).json({ error: `Invalid code. ${remaining > 0 ? remaining + ' attempts remaining.' : 'Please request a new code.'}` });
     }
 
     // Mark OTP as used and verify user
-    await db.query('UPDATE email_otps SET used = true WHERE id = $1', [result.rows[0].id]);
+    await db.query('UPDATE email_otps SET used = true WHERE id = $1', [record.id]);
     await db.query('UPDATE users SET is_verified = true WHERE id = $1', [userId]);
 
     // Fetch user and issue JWT so they're logged in immediately after verification
@@ -336,6 +360,7 @@ router.post('/verify-email', [
 
 // Resend OTP
 router.post('/resend-otp', [
+  authLimiter,
   body('userId').notEmpty().withMessage('User ID is required'),
   validate
 ], async (req, res) => {
