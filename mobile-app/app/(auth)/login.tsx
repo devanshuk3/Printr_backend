@@ -259,6 +259,7 @@ const LoginPage = () => {
             )}
           </TouchableOpacity>
 
+
           {/* Legal Links */}
           <View style={styles.legalRow}>
             <Text style={styles.legalText}>

@@ -21,6 +21,9 @@ import { saveAuthData } from "../../utils/authStorage";
 import { setSharedFullName } from "../../utils/sharedState";
 
 
+import { OTPModal } from "../../components/modals/OTPModal";
+
+
 export default function SignUp() {
      const router = useRouter();
      const [fullName, setFullName] = useState("");     
@@ -28,6 +31,10 @@ export default function SignUp() {
      const [username, setUsername] = useState("");
      const [password, setPassword] = useState("");
      const [loading, setLoading] = useState(false);
+     
+     // OTP States
+     const [showOTP, setShowOTP] = useState(false);
+     const [pendingUserId, setPendingUserId] = useState<number | null>(null);
 
      const promptAsync = async () => {
           try {
@@ -132,32 +139,31 @@ export default function SignUp() {
                if (contentType && contentType.includes("application/json")) {
                     data = await response.json();
                } else {
-                    const text = await response.text();
+                    await response.text();
                     throw new Error("We're having trouble connecting to the server. Please check your internet connection.");
                }
 
                if (!response.ok) {
-                    throw new Error(data.message || "Something went wrong");
+                    throw new Error(data.message || data.error || "Something went wrong");
                }
 
-               // Successfully registered
-               setSharedFullName(data.user.fullName);
-
-               // Save session to persistent storage
-               await saveAuthData(data.token, {
-                    id: data.user.id,
-                    fullName: data.user.fullName,
-                    email: data.user.email,
-                    username: data.user.username
-               });
-
-               router.replace("/home");
+               // Successfully initiated registration
+               // Now show OTP modal
+               setPendingUserId(data.userId);
+               setShowOTP(true);
           } catch (error: any) {
                console.error("Signup error:", error);
                Alert.alert("Registration Failed", error.message || "Please check your details and try again.");
           } finally {
                setLoading(false);
           }
+     };
+
+     const handleOTPSuccess = async (token: string, user: any) => {
+          setShowOTP(false);
+          setSharedFullName(user.fullName);
+          await saveAuthData(token, user);
+          router.replace("/home");
      };
 
      return (
@@ -253,6 +259,15 @@ export default function SignUp() {
                                    />
                               )}
                          </TouchableOpacity>
+
+                         {pendingUserId && (
+                              <OTPModal
+                                   visible={showOTP}
+                                   userId={pendingUserId}
+                                   onClose={() => setShowOTP(false)}
+                                   onSuccess={handleOTPSuccess}
+                              />
+                         )}
                     </View>
                </ScrollView>
           </SafeAreaView>
