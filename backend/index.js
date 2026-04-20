@@ -24,6 +24,7 @@ const ensureTables = async () => {
       username VARCHAR(255) UNIQUE NOT NULL,
       password VARCHAR(255) NOT NULL,
       role VARCHAR(50) DEFAULT 'user',
+      is_verified BOOLEAN DEFAULT false,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
     `CREATE TABLE IF NOT EXISTS vendors (
@@ -66,9 +67,18 @@ const ensureTables = async () => {
       status VARCHAR(50) DEFAULT 'pending',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
+    `CREATE TABLE IF NOT EXISTS email_otps (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      otp_hash TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      used BOOLEAN DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT now()
+    )`,
     `CREATE INDEX IF NOT EXISTS idx_orders_vendor_id_status ON orders (LOWER(vendor_id), status)`,
     `CREATE INDEX IF NOT EXISTS idx_uploaded_files_file_name ON uploaded_files (file_name)`,
-    `CREATE INDEX IF NOT EXISTS idx_orders_file_name ON orders (file_name)`
+    `CREATE INDEX IF NOT EXISTS idx_orders_file_name ON orders (file_name)`,
+    `CREATE INDEX IF NOT EXISTS idx_email_otps_user_id ON email_otps (user_id)`
   ];
 
   for (const query of tableCheck) {
@@ -89,10 +99,6 @@ const ensureTables = async () => {
 // - Electron dev server: Vite on localhost:3000 → origin is "http://localhost:3000"
 // - Backend dev testing: localhost:5000
 const allowedOrigins = [
-  'http://localhost:3000',  // Electron Vite dev server
-  'http://localhost:5000',  // Local backend testing
-  'http://127.0.0.1:3000',
-  'http://127.0.0.1:5000',
   'https://printr-backend.onrender.com'
 ];
 

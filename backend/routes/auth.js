@@ -9,6 +9,8 @@ const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const { body } = require('express-validator');
 const { validate } = require('../middleware/validator');
 const auth = require('../middleware/auth');
+const { generateOTP, hashToken } = require('../utils/otp');
+const { sendOTPEmail } = require('../utils/mailer');
 
 /**
  * @helper Sanitize error message for production
@@ -35,14 +37,12 @@ router.post('/register', [
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Use INSERT ... ON CONFLICT or check existence within a transaction/logic
-    // For simplicity and compatibility, we use a single query that fails if exists
     // Ensure email and username HAVE UNIQUE CONSTRAINTS in DB schema
     
     let newUser;
     try {
       newUser = await db.query(
-        'INSERT INTO users (full_name, email, username, password) VALUES ($1, $2, $3, $4) RETURNING id, full_name, email, username',
+        'INSERT INTO users (full_name, email, username, password, is_verified) VALUES ($1, $2, $3, $4, false) RETURNING id, full_name, email, username',
         [fullName, email, username, hashedPassword]
       );
     } catch (insertErr) {
@@ -55,20 +55,30 @@ router.post('/register', [
       return handleError(res, insertErr, "Registration failed");
     }
 
-    const token = jwt.sign(
-      { id: newUser.rows[0].id },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
+    const userId = newUser.rows[0].id;
+
+    // Generate and store OTP
+    const otp = generateOTP();
+    const otpHash = hashToken(otp);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    await db.query(
+      'INSERT INTO email_otps (user_id, otp_hash, expires_at) VALUES ($1, $2, $3)',
+      [userId, otpHash, expiresAt]
     );
 
+    // Send OTP email (fire-and-forget with error logging)
+    try {
+      await sendOTPEmail(email, otp);
+    } catch (mailErr) {
+      console.error('[Register] Failed to send OTP email:', mailErr.message);
+      // Don't fail registration — user can resend OTP
+    }
+
     res.json({
-      token,
-      user: {
-        id: newUser.rows[0].id,
-        fullName: newUser.rows[0].full_name,
-        email: newUser.rows[0].email,
-        username: newUser.rows[0].username
-      }
+      success: true,
+      userId,
+      message: 'Account created. Check your email for the verification code.'
     });
 
   } catch (err) {
@@ -101,6 +111,14 @@ router.post('/login', [
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(400).json({ message: "Invalid credentials" });
+    }
+
+    // Block login if email not verified
+    if (!user.is_verified) {
+      return res.status(403).json({ 
+        error: 'Please verify your email before logging in', 
+        userId: user.id 
+      });
     }
 
     const token = jwt.sign(
@@ -194,7 +212,7 @@ router.post('/google', [
       const hashedPassword = await bcrypt.hash(randomPassword, salt);
 
       const newUser = await db.query(
-        'INSERT INTO users (full_name, email, username, password) VALUES ($1, $2, $3, $4) RETURNING id, full_name, email, username',
+        'INSERT INTO users (full_name, email, username, password, is_verified) VALUES ($1, $2, $3, $4, true) RETURNING id, full_name, email, username',
         [name, email, username, hashedPassword]
       );
       user = newUser.rows[0];
@@ -259,6 +277,111 @@ router.get('/user/:username', [
     res.json(userRes.rows[0]);
   } catch (err) {
     handleError(res, err, "Fetching user details failed");
+  }
+});
+
+// Verify email with OTP
+router.post('/verify-email', [
+  body('userId').notEmpty().withMessage('User ID is required'),
+  body('otp').trim().notEmpty().withMessage('OTP is required').isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits'),
+  validate
+], async (req, res) => {
+  try {
+    const { userId, otp } = req.body;
+    const otpHash = hashToken(otp);
+
+    const result = await db.query(
+      `SELECT * FROM email_otps
+       WHERE user_id = $1 AND otp_hash = $2 AND used = false AND expires_at > now()
+       ORDER BY created_at DESC LIMIT 1`,
+      [userId, otpHash]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid or expired code' });
+    }
+
+    // Mark OTP as used and verify user
+    await db.query('UPDATE email_otps SET used = true WHERE id = $1', [result.rows[0].id]);
+    await db.query('UPDATE users SET is_verified = true WHERE id = $1', [userId]);
+
+    // Fetch user and issue JWT so they're logged in immediately after verification
+    const userRes = await db.query(
+      'SELECT id, full_name, email, username FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = userRes.rows[0];
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+    res.json({
+      success: true,
+      message: 'Email verified',
+      token,
+      user: {
+        id: user.id,
+        fullName: user.full_name,
+        email: user.email,
+        username: user.username
+      }
+    });
+  } catch (err) {
+    handleError(res, err, "Email verification failed");
+  }
+});
+
+// Resend OTP
+router.post('/resend-otp', [
+  body('userId').notEmpty().withMessage('User ID is required'),
+  validate
+], async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    // Get user email and verification status
+    const userRes = await db.query('SELECT email, is_verified FROM users WHERE id = $1', [userId]);
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (userRes.rows[0].is_verified) {
+      return res.status(400).json({ error: 'Email is already verified' });
+    }
+
+    // Rate limit: check if an OTP was sent in the last 60 seconds
+    const recentOtp = await db.query(
+      `SELECT created_at FROM email_otps
+       WHERE user_id = $1 AND created_at > now() - interval '60 seconds'
+       ORDER BY created_at DESC LIMIT 1`,
+      [userId]
+    );
+
+    if (recentOtp.rows.length > 0) {
+      return res.status(429).json({ error: 'Please wait 60 seconds before requesting a new code' });
+    }
+
+    // Invalidate any existing unused OTPs
+    await db.query('UPDATE email_otps SET used = true WHERE user_id = $1 AND used = false', [userId]);
+
+    // Generate and store new OTP
+    const otp = generateOTP();
+    const otpHash = hashToken(otp);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await db.query(
+      'INSERT INTO email_otps (user_id, otp_hash, expires_at) VALUES ($1, $2, $3)',
+      [userId, otpHash, expiresAt]
+    );
+
+    await sendOTPEmail(userRes.rows[0].email, otp);
+
+    res.json({ success: true, message: 'Verification code resent' });
+  } catch (err) {
+    handleError(res, err, "Resend OTP failed");
   }
 });
 

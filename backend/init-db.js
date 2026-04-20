@@ -9,6 +9,7 @@ const initDb = async () => {
       username VARCHAR(255) UNIQUE NOT NULL,
       password VARCHAR(255) NOT NULL,
       role VARCHAR(50) DEFAULT 'user',
+      is_verified BOOLEAN DEFAULT false,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `;
@@ -64,6 +65,17 @@ const initDb = async () => {
     );
   `;
 
+  const createEmailOtpsTableQuery = `
+    CREATE TABLE IF NOT EXISTS email_otps (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      otp_hash TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      used BOOLEAN DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `;
+
   try {
     console.log('--- STARTING CONSOLIDATED DATABASE INITIALIZATION ---');
     
@@ -75,7 +87,8 @@ const initDb = async () => {
       { name: 'users', query: createUserTableQuery },
       { name: 'vendors', query: createVendorTableQuery },
       { name: 'uploaded_files', query: createUploadsTableQuery },
-      { name: 'orders', query: createOrdersTableQuery }
+      { name: 'orders', query: createOrdersTableQuery },
+      { name: 'email_otps', query: createEmailOtpsTableQuery }
     ];
 
     for (const table of tables) {
@@ -117,6 +130,7 @@ const initDb = async () => {
       'ALTER TABLE orders ADD COLUMN IF NOT EXISTS page_count INTEGER DEFAULT 1',
       'ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_color BOOLEAN DEFAULT FALSE',
       'ALTER TABLE orders ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10, 2) DEFAULT 0.00',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false',
       'DROP TABLE IF EXISTS print_queue CASCADE'
     ];
 
@@ -138,6 +152,14 @@ const initDb = async () => {
             await db.query("UPDATE vendors SET shop_name = name WHERE shop_name IS NULL OR shop_name = ''"); 
         }
     } catch(e) {}
+
+    // 4. Grandfather existing users as verified (prevents lockout after deploying OTP feature)
+    try {
+        await db.query("UPDATE users SET is_verified = true WHERE is_verified IS NULL OR is_verified = false");
+        console.log('[Init] Existing users marked as verified.');
+    } catch(e) {
+        console.warn('[Init] Could not update existing user verification status:', e.message);
+    }
 
     console.log('--- DATABASE INITIALIZATION COMPLETE ---');
     process.exit(0);

@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
     username VARCHAR(255) UNIQUE,
     password VARCHAR(255) NOT NULL,
     role VARCHAR(50) DEFAULT 'user',
+    is_verified BOOLEAN DEFAULT false,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -69,4 +70,13 @@ CREATE TABLE IF NOT EXISTS uploaded_files (
     uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     delete_after TIMESTAMP NOT NULL,
     deleted_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS email_otps (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    otp_hash TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    used BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT now()
 );
