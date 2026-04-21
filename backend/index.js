@@ -1,21 +1,14 @@
-const express = require('express');
-const cors = require('cors');
-const https = require('https');
-const http = require('http');
-const path = require('path');
-const db = require('./db');
-const { startCleanupTask, cleanupOldFiles, cleanupDatabaseHistory, cleanupCompletedJobs } = require('./utils/cleanup');
-const auth = require('./middleware/auth');
-const roleAuth = require('./middleware/roleAuth');
-const helmet = require('helmet');
+// ========== ENVIRONMENT SETUP (must be first!) ==========
+// In production (Render), system env vars are already set.
+// In development, load from .env file before any module reads process.env.
 if (process.env.NODE_ENV !== 'production') {
-  console.log('[Init] Development mode: Loading local .env file...');
   require('dotenv').config();
+  console.log('[Init] Development mode: Loaded local .env file.');
 } else {
-  console.log('[Init] Production mode: System environment variables prioritized.');
+  console.log('[Init] Production mode: Using system environment variables.');
 }
 
-// Environment Validation
+// Environment Validation — fail fast if critical vars are missing
 const requiredEnv = [
   'SUPABASE_URL',
   'JWT_SECRET',
@@ -31,6 +24,18 @@ if (missing.length > 0) {
   console.error('Please ensure these are set in your Render dashboard or .env file.');
   if (process.env.NODE_ENV === 'production') process.exit(1);
 }
+
+// ========== MODULE IMPORTS (safe to use process.env now) ==========
+const express = require('express');
+const cors = require('cors');
+const https = require('https');
+const http = require('http');
+const path = require('path');
+const db = require('./db');
+const { startCleanupTask, cleanupOldFiles, cleanupDatabaseHistory, cleanupCompletedJobs } = require('./utils/cleanup');
+const auth = require('./middleware/auth');
+const roleAuth = require('./middleware/roleAuth');
+const helmet = require('helmet');
 
 const app = express();
 

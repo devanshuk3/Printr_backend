@@ -13,7 +13,7 @@ const endpoint = process.env.R2_ENDPOINT ? process.env.R2_ENDPOINT.trim().replac
  * - requestChecksumCalculation: 'WHEN_REQUIRED' — no automatic checksum headers in pre-signed URLs
  */
 const r2 = new S3Client({
-  region: 'us-east-1',
+  region: 'auto',
   endpoint: endpoint,
   forcePathStyle: false,
   followRegionRedirects: false, // Prevent hidden HeadBucket/region-resolution API calls
