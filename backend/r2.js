@@ -15,7 +15,7 @@ const endpoint = process.env.R2_ENDPOINT ? process.env.R2_ENDPOINT.trim().replac
 const r2 = new S3Client({
   region: 'auto',
   endpoint: endpoint,
-  forcePathStyle: false,
+  forcePathStyle: true,
   followRegionRedirects: false, // Prevent hidden HeadBucket/region-resolution API calls
   requestChecksumCalculation: 'WHEN_REQUIRED',
   credentials: {
