@@ -8,7 +8,29 @@ const { startCleanupTask, cleanupOldFiles, cleanupDatabaseHistory, cleanupComple
 const auth = require('./middleware/auth');
 const roleAuth = require('./middleware/roleAuth');
 const helmet = require('helmet');
-require('dotenv').config();
+if (process.env.NODE_ENV !== 'production') {
+  console.log('[Init] Development mode: Loading local .env file...');
+  require('dotenv').config();
+} else {
+  console.log('[Init] Production mode: System environment variables prioritized.');
+}
+
+// Environment Validation
+const requiredEnv = [
+  'SUPABASE_URL',
+  'JWT_SECRET',
+  'R2_ACCESS_KEY_ID',
+  'R2_SECRET_ACCESS_KEY',
+  'R2_ENDPOINT',
+  'R2_BUCKET_NAME'
+];
+
+const missing = requiredEnv.filter(k => !process.env[k]);
+if (missing.length > 0) {
+  console.error('[Fatal] Missing required environment variables:', missing.join(', '));
+  console.error('Please ensure these are set in your Render dashboard or .env file.');
+  if (process.env.NODE_ENV === 'production') process.exit(1);
+}
 
 const app = express();
 

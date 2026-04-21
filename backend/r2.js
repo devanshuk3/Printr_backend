@@ -1,5 +1,5 @@
 const { S3Client } = require('@aws-sdk/client-s3');
-require('dotenv').config();
+// No longer calling dotenv.config() here; it is handled globally in index.js
 
 console.log('Initializing R2 S3 Client...');
 const endpoint = process.env.R2_ENDPOINT ? process.env.R2_ENDPOINT.trim().replace(/\/$/, '') : '';

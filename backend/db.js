@@ -1,5 +1,5 @@
 const { Pool } = require('pg');
-require('dotenv').config();
+// No longer calling dotenv.config() here; it is handled globally in index.js
 
 const poolConfig = {
   connectionString: process.env.SUPABASE_URL || `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`,
