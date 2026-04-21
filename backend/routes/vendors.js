@@ -644,8 +644,34 @@ router.post('/download', auth, async (req, res) => {
       }
     }
 
-    // Check if key is already full path (vendor/file) or just file
-    const bucketName = process.env.R2_BUCKET_NAME;
+    const bucketName = (process.env.R2_BUCKET_NAME || '').trim();
+    const command = new GetObjectCommand({
+      Bucket: bucketName,
+      Key: file_key,
+    });
+
+    const downloadUrl = await getSignedUrl(r2, command, { expiresIn: 3600 });
+    res.json({ downloadUrl, status: 'success' });
+  } catch (err) {
+    handleError(res, err, "Generating download URL failed");
+  }
+});
+
+// GET version for compatibility with frontend preference fetching
+router.get('/download', auth, async (req, res) => {
+  const file_key = req.query.key;
+  if (!file_key) return res.status(400).json({ message: "key is required" });
+
+  try {
+    const authVendorId = req.user.vendor_id;
+    if (authVendorId) {
+      const keyPrefix = file_key.split('/')[0];
+      if (keyPrefix.toLowerCase() !== authVendorId.toLowerCase()) {
+        return res.status(403).json({ message: "Access denied: This file does not belong to your account" });
+      }
+    }
+
+    const bucketName = (process.env.R2_BUCKET_NAME || '').trim();
     const command = new GetObjectCommand({
       Bucket: bucketName,
       Key: file_key,
