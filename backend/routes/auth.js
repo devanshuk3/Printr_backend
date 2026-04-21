@@ -61,7 +61,6 @@ router.post('/register', [
 
     const userId = newUser.rows[0].id;
 
-    // Generate and store OTP
     const otp = generateOTP();
     const otpHash = hashToken(otp);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
