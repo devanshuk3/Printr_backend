@@ -311,7 +311,8 @@ router.post('/files/upload-url', [
     }
 
     // 4. Insert into uploaded_files for storage tracking (Manual retention based on print/cancel)
-    const deleteAfter = null;
+    // Using a far future date (10 years) to bypass NOT NULL database constraint
+    const deleteAfter = new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000);
     await db.supabaseQuery(
       `INSERT INTO uploaded_files (object_key, vendor_id, user_id, file_name, status, delete_after)
        VALUES ($1, $2, $3, $4, $5, $6)`,
