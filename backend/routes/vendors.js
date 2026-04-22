@@ -579,7 +579,7 @@ router.get('/files', [auth, queueLimiter], async (req, res) => {
         const countRes = await db.supabaseQuery(`
           SELECT COUNT(*) FROM orders 
           WHERE LOWER(vendor_id) = LOWER($1) 
-          AND status NOT IN ('completed', 'cancelled', 'printed', 'rejected', 'uploading', 'failed')
+          AND status NOT IN ('completed', 'printed', 'rejected', 'uploading', 'failed')
         `, [sanitizedVendorId]);
         totalCount = parseInt(countRes.rows[0].count);
         totalCountCache.set(sanitizedVendorId, { count: totalCount, timestamp: Date.now() });
@@ -601,7 +601,7 @@ router.get('/files', [auth, queueLimiter], async (req, res) => {
       LEFT JOIN users u ON o.user_id = u.id
       LEFT JOIN uploaded_files f ON o.file_name = f.file_name
       WHERE LOWER(o.vendor_id) = LOWER($1) 
-        AND o.status NOT IN ('completed', 'cancelled', 'printed', 'rejected', 'uploading')
+        AND o.status NOT IN ('completed', 'printed', 'rejected', 'uploading')
         AND o.file_name NOT LIKE '%.xml'
         ${cursor ? 'AND o.created_at < $4' : ''}
       ORDER BY o.created_at DESC
@@ -740,28 +740,19 @@ router.post('/delete', auth, async (req, res) => {
       return res.status(403).json({ message: "Access denied: This order does not belong to your account" });
     }
 
-    // Move to archived_orders instead of just changing status inside orders directly
-    await db.supabaseQuery(`
-      INSERT INTO archived_orders (original_id, user_id, vendor_id, status, page_count, total_amount, is_color, file_name, created_at, archived_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-    `, [
-      orderData.id, orderData.user_id, orderData.vendor_id, 'cancelled',
-      orderData.page_count, orderData.total_amount, orderData.is_color,
-      orderData.file_name, orderData.created_at
-    ]);
-    
-    await db.supabaseQuery("DELETE FROM orders WHERE id = $1", [id]);
+    // Only mark status as cancelled, do NOT immediately move to archive. The 1 hour cleanup purger handles this!
+    await db.supabaseQuery("UPDATE orders SET status = 'cancelled', updated_at = NOW() WHERE id = $1", [id]);
     
     // Set file to delete after 1 hour from R2, allowing temporary redownload if needed
     if (orderData.file_name) {
       await db.supabaseQuery("UPDATE uploaded_files SET status = 'cancelled', delete_after = NOW() + INTERVAL '1 hour' WHERE file_name = $1", [orderData.file_name]);
     }
 
-    logStatusChange(id, orderData.status, 'cancelled (archived)');
+    logStatusChange(id, orderData.status, 'cancelled');
 
     invalidateCache(orderData.vendor_id);
 
-    res.json({ message: "Order cancelled and archived", status: "success" });
+    res.json({ message: "Order cancelled (held in queue for 1 hour)", status: "success" });
   } catch (err) {
     handleError(res, err, "Order cancellation failed");
   }
