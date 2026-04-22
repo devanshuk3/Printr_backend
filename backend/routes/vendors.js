@@ -310,9 +310,8 @@ router.post('/files/upload-url', [
       throw new Error("R2_BUCKET_NAME is missing on server");
     }
 
-    // 4. Insert into uploaded_files for storage tracking (Manual retention based on print/cancel)
-    // Using a far future date (10 years) to bypass NOT NULL database constraint
-    const deleteAfter = new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000);
+    // 4. Insert into uploaded_files for storage tracking (1 hour retention)
+    const deleteAfter = new Date(Date.now() + 1 * 60 * 60 * 1000);
     await db.supabaseQuery(
       `INSERT INTO uploaded_files (object_key, vendor_id, user_id, file_name, status, delete_after)
        VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -579,7 +578,7 @@ router.get('/files', [auth, queueLimiter], async (req, res) => {
         const countRes = await db.supabaseQuery(`
           SELECT COUNT(*) FROM orders 
           WHERE LOWER(vendor_id) = LOWER($1) 
-          AND status NOT IN ('completed', 'printed', 'rejected', 'uploading', 'failed')
+          AND status NOT IN ('completed', 'rejected', 'uploading', 'failed')
         `, [sanitizedVendorId]);
         totalCount = parseInt(countRes.rows[0].count);
         totalCountCache.set(sanitizedVendorId, { count: totalCount, timestamp: Date.now() });
@@ -601,7 +600,7 @@ router.get('/files', [auth, queueLimiter], async (req, res) => {
       LEFT JOIN users u ON o.user_id = u.id
       LEFT JOIN uploaded_files f ON o.file_name = f.file_name
       WHERE LOWER(o.vendor_id) = LOWER($1) 
-        AND o.status NOT IN ('completed', 'printed', 'rejected', 'uploading')
+        AND o.status NOT IN ('completed', 'rejected', 'uploading', 'failed')
         AND o.file_name NOT LIKE '%.xml'
         ${cursor ? 'AND o.created_at < $4' : ''}
       ORDER BY o.created_at DESC
@@ -691,7 +690,7 @@ router.post('/printed-legacy', auth, async (req, res) => {
   try {
     // Verify the order belongs to this vendor before updating
     const authVendorId = req.user.vendor_id;
-    const checkRes = await db.supabaseQuery("SELECT vendor_id, file_name, status FROM orders WHERE id = $1", [id]);
+    const checkRes = await db.supabaseQuery("SELECT vendor_id FROM orders WHERE id = $1", [id]);
     
     if (checkRes.rows.length === 0) {
       return res.status(404).json({ message: "Order not found" });
@@ -707,12 +706,6 @@ router.post('/printed-legacy', auth, async (req, res) => {
     }
     
     await db.supabaseQuery("UPDATE orders SET status = 'printed', updated_at = NOW() WHERE id = $1", [id]);
-    
-    // Set file to delete after 1 hour from R2, allowing temporary redownload if needed
-    if (checkRes.rows[0].file_name) {
-      await db.supabaseQuery("UPDATE uploaded_files SET status = 'printed', delete_after = NOW() + INTERVAL '1 hour' WHERE file_name = $1", [checkRes.rows[0].file_name]);
-    }
-
     logStatusChange(id, oldStatus, 'printed');
     invalidateCache(checkRes.rows[0].vendor_id);
 
@@ -740,19 +733,13 @@ router.post('/delete', auth, async (req, res) => {
       return res.status(403).json({ message: "Access denied: This order does not belong to your account" });
     }
 
-    // Only mark status as cancelled, do NOT immediately move to archive. The 1 hour cleanup purger handles this!
+    // Just change status so the order stays in queue for an hour (cleanup handles archiving later)
     await db.supabaseQuery("UPDATE orders SET status = 'cancelled', updated_at = NOW() WHERE id = $1", [id]);
-    
-    // Set file to delete after 1 hour from R2, allowing temporary redownload if needed
-    if (orderData.file_name) {
-      await db.supabaseQuery("UPDATE uploaded_files SET status = 'cancelled', delete_after = NOW() + INTERVAL '1 hour' WHERE file_name = $1", [orderData.file_name]);
-    }
-
-    logStatusChange(id, orderData.status, 'cancelled');
+    logStatusChange(id, orderData.status, 'cancelled (archived)');
 
     invalidateCache(orderData.vendor_id);
 
-    res.json({ message: "Order cancelled (held in queue for 1 hour)", status: "success" });
+    res.json({ message: "Order cancelled and archived", status: "success" });
   } catch (err) {
     handleError(res, err, "Order cancellation failed");
   }

@@ -63,68 +63,128 @@ const cleanupOldFiles = async () => {
 };
 
 /**
- * Delete records from history (DB).
+ * Delete records from history (DB) after they are 3 hours old.
+ * This applies to Both uploaded_files and orders.
  */
 const cleanupDatabaseHistory = async () => {
-  console.log('[Cleanup] purging old database history...');
+  console.log('[Cleanup] purging old database history (1h history / 1h queue policy)...');
   try {
-    // 1. Delete abandoned 'uploading' orders after 30 minutes
+    // 1. Delete completed/failed records after 1 hour (History)
+    const historyRes = await db.supabaseQuery(`
+      DELETE FROM uploaded_files 
+      WHERE status IN ('printed', 'failed') 
+      AND uploaded_at <= NOW() - INTERVAL '1 hour'
+    `);
+
+    // 1.5 Delete abandoned 'uploading' orders after 30 minutes
     const abandonedRes = await db.supabaseQuery(`
       DELETE FROM orders 
       WHERE status = 'uploading' AND created_at <= NOW() - INTERVAL '30 minutes'
     `);
 
-    // 2. Move printed/failed old order records to archived_orders after 1 hour, then delete
+    // 2. Move old order records to archived_orders after 1 hour, then delete
     await db.supabaseQuery(`
       INSERT INTO archived_orders (original_id, user_id, vendor_id, status, page_count, total_amount, is_color, file_name, created_at, archived_at)
       SELECT id, user_id, vendor_id, status, page_count, total_amount, is_color, file_name, created_at, NOW()
       FROM orders 
-      WHERE status IN ('printed', 'failed', 'cancelled') AND updated_at <= NOW() - INTERVAL '1 hour'
+      WHERE created_at <= NOW() - INTERVAL '1 hour'
     `);
 
     const orderRes = await db.supabaseQuery(`
       DELETE FROM orders 
-      WHERE status IN ('printed', 'failed', 'cancelled') AND updated_at <= NOW() - INTERVAL '1 hour'
+      WHERE created_at <= NOW() - INTERVAL '1 hour'
     `);
 
-    // 3. Absolute purge from database for files that were ALREADY cleanly deleted from R2
+    // 3. Absolute 1 hour purge for everything (Queue limit)
     const absoluteRes = await db.supabaseQuery(`
       DELETE FROM uploaded_files 
-      WHERE deleted_at IS NOT NULL AND deleted_at <= NOW() - INTERVAL '1 day'
+      WHERE uploaded_at <= NOW() - INTERVAL '1 hour'
     `);
 
-    console.log(`[Cleanup] purged abandoned orders, ${orderRes.rowCount || 0} completed orders, and ${absoluteRes.rowCount || 0} deleted items from DB metadata.`);
+    console.log(`[Cleanup] purged ${historyRes.rowCount || 0} history, ${orderRes.rowCount || 0} orders, and ${absoluteRes.rowCount || 0} expired queue items.`);
   } catch (err) {
     console.error('[Cleanup] Error in cleanupDatabaseHistory:', err.message);
   }
 };
 
+/**
+ * Handle "as soon as printed" cleanup for STORAGE (R2).
+ * Records remain in DB for 3 hours (handled by history purger).
+ */
+const cleanupCompletedJobs = async () => {
+  console.log('[Cleanup] Checking for freshly printed jobs to purge from storage...');
+  try {
+    const result = await db.supabaseQuery(`
+      SELECT id, object_key FROM uploaded_files 
+      WHERE status = 'printed' 
+      AND deleted_at IS NULL
+    `);
+
+    if (result.rows.length === 0) return;
+
+    const bucketName = process.env.R2_BUCKET_NAME;
+    const batch = result.rows;
+    const keys = batch.map(obj => ({ Key: obj.object_key }));
+    const ids = batch.map(obj => obj.id);
+
+    // 1. Delete from R2
+    if (bucketName) {
+      try {
+        await r2.send(new DeleteObjectsCommand({
+          Bucket: bucketName,
+          Delete: { Objects: keys },
+        }));
+      } catch (r2Err) {
+        console.warn(`[Cleanup] R2 deletion failed for completed jobs.`);
+      }
+    }
+
+    // 2. Mark as deleted in DB (will be permanently removed by history purger later)
+    await db.supabaseQuery(
+      'UPDATE uploaded_files SET deleted_at = NOW() WHERE id = ANY($1)',
+      [ids]
+    );
+
+    console.log(`[Cleanup] Storage cleared for ${batch.length} printed jobs.`);
+  } catch (error) {
+    console.error('[Cleanup] Error in cleanupCompletedJobs:', error.message);
+  }
+};
+
 // Start Background Tasks
 const startCleanupTask = () => {
-  console.log('[Cleanup] Initializing scheduled tasks...');
+  console.log('[Cleanup] Initializing specialized scheduled tasks...');
 
   // Initial runs
   cleanupOldFiles().catch(() => { });
+  cleanupCompletedJobs().catch(() => { });
   cleanupDatabaseHistory().catch(() => { });
 
   // Recurring schedules
   // 1. Files/Queue Cleanup: Check for expired record/file removals every 20 minutes
   cron.schedule('*/20 * * * *', async () => {
-    console.log(`[Cleanup] Starting file check...`);
+    console.log(`[Cleanup] Starting 1-hour queue/file check...`);
     await cleanupOldFiles();
   });
 
-  // 2. History Purge: Delete DB records older than 1 hour (for completed orders only), every 30 minutes
+  // 2. History Purge: Delete DB records older than 1 hour, every 30 minutes
   cron.schedule('*/30 * * * *', async () => {
-    console.log(`[Cleanup] Starting DB history purge...`);
+    console.log(`[Cleanup] Starting history purge (1h policy)...`);
     await cleanupDatabaseHistory();
   });
 
-  console.log('[Cleanup] Scheduled: Queue Storage Purge (20m), History Purge (30m).');
+  // 3. STORAGE Immediate Clean: Delete printed files from R2 every 10 minutes
+  cron.schedule('*/10 * * * *', async () => {
+    console.log(`[Cleanup] Starting immediate printed-file storage removal...`);
+    await cleanupCompletedJobs();
+  });
+
+  console.log('[Cleanup] Scheduled: Queue Purge (1h), History Purge (30m), Printed-Storage (10m).');
 };
 
 module.exports = {
   startCleanupTask,
   cleanupOldFiles,
-  cleanupDatabaseHistory
+  cleanupDatabaseHistory,
+  cleanupCompletedJobs
 };
