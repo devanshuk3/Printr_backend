@@ -289,7 +289,7 @@ router.post('/files/upload-url', [
       logStatusChange(orderId, 'none', 'uploading');
     } else {
       // For JSON preferences, we generate a random temporary numeric ID if one isn't provided
-      orderId = Date.now().toString().slice(-8);
+      orderId = existingOrderId || Date.now().toString().slice(-8);
     }
 
     // 2. Generate the filename as username + unique_order_id

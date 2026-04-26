@@ -7,6 +7,8 @@ import { Plus, Minus, ChevronLeft, FileText, Hash, Copy, Check, X, Smartphone, A
 import * as FileSystem from 'expo-file-system/legacy';
 import { API_URL } from "../../constants/apiConfig";
 import { getAuthData } from "../../utils/authStorage";
+import { PDFDocument, PageSizes } from 'pdf-lib';
+import { decode, encode } from 'base64-arraybuffer';
 // Fallback for Clipboard if native module is missing
 let Clipboard: any;
 try {
@@ -48,7 +50,118 @@ const parsePageRange = (rangeStr: string, maxPages: number) => {
                }
           }
      });
-     return processedPages.size;
+     return Array.from(processedPages).length;
+};
+
+const processPdf = async (files: any[], prefs: any) => {
+    const finalDoc = await PDFDocument.create();
+    const tempDoc = await PDFDocument.create();
+    
+    // 1. Merge all files into tempDoc
+    for (const file of files) {
+        const base64 = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.Base64 });
+        const arrayBuffer = decode(base64);
+        
+        let pdfDoc;
+        const lowerName = file.name.toLowerCase();
+        if (file.mimeType?.includes('pdf') || lowerName.endsWith('.pdf')) {
+            try {
+                pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+            } catch (e) {
+                console.warn(`Failed to parse ${file.name} natively. Trying to continue.`);
+                continue;
+            }
+        } else if (lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg') || file.mimeType?.includes('image')) {
+            pdfDoc = await PDFDocument.create();
+            let img;
+            if (lowerName.endsWith('.png') || file.mimeType?.includes('png')) {
+                img = await pdfDoc.embedPng(arrayBuffer);
+            } else {
+                img = await pdfDoc.embedJpg(arrayBuffer);
+            }
+            const page = pdfDoc.addPage([img.width, img.height]);
+            page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+        } else {
+            console.warn(`Unsupported file type for merging: ${file.name}`);
+            continue;
+        }
+        
+        const copiedPages = await tempDoc.copyPages(pdfDoc, pdfDoc.getPageIndices());
+        copiedPages.forEach((p: any) => tempDoc.addPage(p));
+    }
+    
+    // 2. Page Selection
+    let selectedIndices: number[] = [];
+    const totalPages = tempDoc.getPageCount();
+    if (prefs.pageSelection === 'Custom' && prefs.customRange) {
+        const parts = prefs.customRange.split(',');
+        for (const part of parts) {
+            const range = part.trim();
+            if (range.includes('-')) {
+                const partsArr = range.split('-');
+                if (partsArr.length === 2) {
+                    const start = parseInt(partsArr[0]);
+                    const end = parseInt(partsArr[1]);
+                    if (!isNaN(start) && !isNaN(end)) {
+                        for (let i = start; i <= end; i++) {
+                            if (i >= 1 && i <= totalPages) selectedIndices.push(i - 1);
+                        }
+                    }
+                }
+            } else {
+                const pageNum = parseInt(range);
+                if (!isNaN(pageNum) && pageNum >= 1 && pageNum <= totalPages) selectedIndices.push(pageNum - 1);
+            }
+        }
+    } else {
+        for (let i = 0; i < totalPages; i++) selectedIndices.push(i);
+    }
+    
+    if (selectedIndices.length === 0) selectedIndices = [0];
+    
+    // 3. Create final pages with Layout and Scaling
+    const A4 = PageSizes.A4; 
+    
+    const tempBytes = await tempDoc.save();
+    const embeddedPages = await finalDoc.embedPdf(tempBytes, selectedIndices);
+    
+    for (let i = 0; i < embeddedPages.length; i++) {
+        const embeddedPage = embeddedPages[i];
+        const origW = embeddedPage.width;
+        const origH = embeddedPage.height;
+        
+        let targetW = A4[0];
+        let targetH = A4[1];
+        if (prefs.layout === 'Landscape') {
+            targetW = A4[1];
+            targetH = A4[0];
+        }
+        
+        const newPage = finalDoc.addPage([targetW, targetH]);
+        
+        let scale = 1;
+        if (prefs.scaling === 'Fit to Page') {
+            const scaleX = targetW / origW;
+            const scaleY = targetH / origH;
+            scale = Math.min(scaleX, scaleY);
+        } else if (prefs.scaling === 'Custom' && prefs.customScale) {
+            const pct = parseFloat(prefs.customScale.replace('%', ''));
+            if (!isNaN(pct) && pct > 0) scale = pct / 100;
+        }
+        
+        const scaledW = origW * scale;
+        const scaledH = origH * scale;
+        
+        const x = (targetW - scaledW) / 2;
+        const y = (targetH - scaledH) / 2;
+        
+        newPage.drawPage(embeddedPage, {
+            x, y, width: scaledW, height: scaledH
+        });
+    }
+    
+    const finalBytes = await finalDoc.save();
+    return encode(finalBytes);
 };
 
 // Price calculation is now handled server-side via /api/payment/calculate
@@ -248,11 +361,13 @@ const PrintSettings = () => {
                const orderId = Date.now().toString();
 
                // Step 1: Upload Original Files
-               const uploadResults = await Promise.all(internalFiles.map(async (file, index) => {
-                    // Since we removed server-side conversion, we always upload directly to R2
-                    // Naming pattern: username_orderid_originalfilename.ext
-                    const standardizedFileName = `${username}_${orderId}_${file.name}`;
-
+               let uploadResults: string[] = [];
+               try {
+                    const base64Data = await processPdf(internalFiles, formData);
+                    const mergedFileName = `${username}_${orderId}_MergedDocument.pdf`;
+                    const mergedFilePath = `${FileSystem.cacheDirectory}${mergedFileName}`;
+                    await FileSystem.writeAsStringAsync(mergedFilePath, base64Data, { encoding: FileSystem.EncodingType.Base64 });
+                    
                     const urlResponse = await fetch(`${API_URL}/vendors/files/upload-url`, {
                          method: 'POST',
                          headers: {
@@ -261,29 +376,27 @@ const PrintSettings = () => {
                          },
                          body: JSON.stringify({
                               vendorId: vendorId,
-                              fileName: standardizedFileName,
-                              contentType: file.mimeType || 'application/octet-stream',
+                              fileName: mergedFileName,
+                              contentType: 'application/pdf',
                               totalPages: totalPages,
                               totalAmount: parseFloat(pendingAmount) || totalCost,
                               isColor: formData.colorMode === 'Colored',
-                              pageCount: file.pageCount || 1,
-                              orderId: allocatedOrderIds[index]
+                              pageCount: totalPages,
+                              orderId: allocatedOrderIds[0]
                          })
                     });
 
                     if (!urlResponse.ok) {
-                         const errorData = await urlResponse.json();
                          throw new Error("We're having trouble starting your upload. Please try again.");
                     }
 
                     const { uploadUrl, filePath, orderId: returnedOrderId } = await urlResponse.json();
 
-                    // Use Native FileSystem upload
-                    const uploadRes = await FileSystem.uploadAsync(uploadUrl, file.uri, {
+                    const uploadRes = await FileSystem.uploadAsync(uploadUrl, mergedFilePath, {
                          httpMethod: 'PUT',
                          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
                          headers: {
-                              'Content-Type': file.mimeType || 'application/octet-stream'
+                              'Content-Type': 'application/pdf'
                          }
                     });
 
@@ -291,7 +404,6 @@ const PrintSettings = () => {
                          throw new Error("Something went wrong while sending your files. Please check your connection.");
                     }
 
-                    // Confirm the upload with the backend to finalize the order
                     if (returnedOrderId) {
                          const confirmRes = await fetch(`${API_URL}/vendors/orders/${returnedOrderId}/confirm-upload`, {
                               method: 'POST',
@@ -302,8 +414,10 @@ const PrintSettings = () => {
                          }
                     }
 
-                    return filePath;
-               }));
+                    uploadResults.push(filePath);
+               } catch (err: any) {
+                    throw new Error("Failed to process or upload document: " + err.message);
+               }
 
                // Step 2: Create and upload Print Preferences JSON
                try {
@@ -330,7 +444,8 @@ const PrintSettings = () => {
                          body: JSON.stringify({
                               vendorId: vendorId,
                               fileName: jsonFileName,
-                              contentType: 'application/json'
+                              contentType: 'application/json',
+                              orderId: allocatedOrderIds[0]
                          })
                     });
 
@@ -543,11 +658,11 @@ const PrintSettings = () => {
                     },
                     body: JSON.stringify({
                          vendorId,
-                         files: internalFiles.map(f => ({
-                              pageCount: f.pageCount || 1,
-                              totalAmount: priceData.totalAmount / internalFiles.length, // Rough split for record keeping
+                         files: [{
+                              pageCount: totalPages || 1,
+                              totalAmount: priceData.totalAmount,
                               isColor: formData.colorMode === 'Colored'
-                         }))
+                         }]
                     })
                });
 
