@@ -41,85 +41,7 @@ const app = express();
 
 // ========== DATABASE & STARTUP ==========
 
-// Initialize DB and Cleanups 
-const ensureTables = async () => {
-  console.log('[Boot] Checking database tables...');
-  const tableCheck = [
-    `CREATE TABLE IF NOT EXISTS users (
-      id SERIAL PRIMARY KEY,
-      full_name VARCHAR(255) NOT NULL,
-      email VARCHAR(255) UNIQUE NOT NULL,
-      username VARCHAR(255) UNIQUE NOT NULL,
-      password VARCHAR(255) NOT NULL,
-      role VARCHAR(50) DEFAULT 'user',
-      is_verified BOOLEAN DEFAULT false,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`,
-    `CREATE TABLE IF NOT EXISTS vendors (
-      id SERIAL PRIMARY KEY,
-      vendor_id VARCHAR(50) UNIQUE NOT NULL,
-      password VARCHAR(255),
-      full_name VARCHAR(255),
-      shop_name VARCHAR(255) NOT NULL,
-      phone VARCHAR(20),
-      upi_id VARCHAR(255),
-      address TEXT,
-      bw_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-      color_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-      has_bw_printer BOOLEAN DEFAULT TRUE,
-      has_color_printer BOOLEAN DEFAULT FALSE,
-      paper_sizes VARCHAR(255),
-      pages_printed INTEGER DEFAULT 0,
-      platform_fee DECIMAL(10, 2) DEFAULT 0.00,
-      auto_accept_jobs BOOLEAN DEFAULT TRUE,
-      enable_upi BOOLEAN DEFAULT TRUE,
-      min_amount DECIMAL(10, 2) DEFAULT 1.00,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`,
-    `CREATE TABLE IF NOT EXISTS uploaded_files (
-      id SERIAL PRIMARY KEY,
-      object_key VARCHAR(512) UNIQUE NOT NULL,
-      vendor_id VARCHAR(50) NOT NULL,
-      user_id INTEGER NOT NULL,
-      file_name VARCHAR(255),
-      status VARCHAR(50) DEFAULT 'uploaded',
-      uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      delete_after TIMESTAMP NOT NULL,
-      deleted_at TIMESTAMP
-    )`,
-    `CREATE TABLE IF NOT EXISTS orders (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER NOT NULL,
-      vendor_id VARCHAR(50) NOT NULL,
-      file_name VARCHAR(255),
-      status VARCHAR(50) DEFAULT 'pending',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`,
-    `CREATE TABLE IF NOT EXISTS email_otps (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      otp_hash TEXT NOT NULL,
-      expires_at TIMESTAMPTZ NOT NULL,
-      used BOOLEAN DEFAULT false,
-      attempts INTEGER DEFAULT 0,
-      created_at TIMESTAMPTZ DEFAULT now()
-    )`,
-    `CREATE INDEX IF NOT EXISTS idx_orders_vendor_id_status ON orders (LOWER(vendor_id), status)`,
-    `CREATE INDEX IF NOT EXISTS idx_uploaded_files_file_name ON uploaded_files (file_name)`,
-    `CREATE INDEX IF NOT EXISTS idx_orders_file_name ON orders (file_name)`,
-    `CREATE INDEX IF NOT EXISTS idx_email_otps_user_id ON email_otps (user_id)`
-  ];
 
-  for (const query of tableCheck) {
-    try {
-      await db.query(query);
-    } catch (err) {
-      console.error('[Boot] Error ensuring table:', err.message);
-    }
-  }
-
-  console.log('[Boot] All tables verified.');
-};
 
 // ========== CORS POLICY ==========
 // Allowed origins:
@@ -205,9 +127,6 @@ console.log("ENV PORT:", process.env.PORT);
 // Only start the server if this file is run directly, not when required as a module
 app.listen(PORT, async () => {
   console.log(`Server started on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
-
-  // 1. Ensure DB integrity
-  await ensureTables();
 
   // 2. Start scheduled tasks
   startCleanupTask();

@@ -11,6 +11,7 @@ const checkRole = require('../middleware/roleAuth');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { generalLimiter, uploadLimiter, queueLimiter, authLimiter } = require('../middleware/rateLimiter');
+const handleError = require('../utils/errorHandler');
 
 
 // ── Application-Level Queue Caching (Limits DB requests on dashboard polling) ──
@@ -35,15 +36,7 @@ const logStatusChange = (orderId, fromStatus, toStatus) => {
   console.log(`[OrderLog] Order:${orderId} | ${fromStatus} -> ${toStatus} | ${timestamp}`);
 };
 
-/**
- * @helper Sanitize error message for production
- */
-const handleError = (res, err, customMsg = "Something went wrong on our end. Please try again later.") => {
-  console.error(`${customMsg}:`, err.message || err);
-  return res.status(500).json({
-    message: customMsg
-  });
-};
+
 
 /**
  * @endpoint Initialize a batch of orders before payment/upload
@@ -59,7 +52,7 @@ router.post('/orders/batch', [auth, uploadLimiter], async (req, res) => {
     const orderIds = [];
     
     for (const file of files) {
-      const orderRes = await db.supabaseQuery(
+      const orderRes = await db.query(
         'INSERT INTO orders (user_id, vendor_id, status, page_count, total_amount, is_color) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
         [req.user.id, sanitizedVendorId, 'uploading', file.pageCount || 1, file.totalAmount || 0, file.isColor || false]
       );
@@ -82,7 +75,7 @@ router.get('/verify/:vendorId', [
   const { vendorId } = req.params;
 
   try {
-    const result = await db.supabaseQuery(
+    const result = await db.query(
       'SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, phone, upi_id, pages_printed, platform_fee, has_bw_printer, has_color_printer FROM vendors WHERE LOWER(TRIM(vendor_id)) = LOWER(TRIM($1))',
       [vendorId]
     );
@@ -100,7 +93,7 @@ router.get('/verify/:vendorId', [
 // Get all vendors (Only accessible by ADMINS)
 router.get('/all', [auth, checkRole(['admin'])], async (req, res) => {
   try {
-    const result = await db.supabaseQuery('SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, phone, upi_id, pages_printed, platform_fee, has_bw_printer, has_color_printer FROM vendors ORDER BY shop_name ASC');
+    const result = await db.query('SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, phone, upi_id, pages_printed, platform_fee, has_bw_printer, has_color_printer FROM vendors ORDER BY shop_name ASC');
     res.json(result.rows);
   } catch (err) {
     handleError(res, err, "Fetching vendors failed");
@@ -127,7 +120,7 @@ router.post('/increment-stats', [
       feeIncrement = totalAmount * PLATFORM_FEE_PERCENT;
     } else {
       // Fallback: estimate from pages * bw_price
-      const vendorRes = await db.supabaseQuery(
+      const vendorRes = await db.query(
         'SELECT bw_price FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
         [vendorId]
       );
@@ -137,7 +130,7 @@ router.post('/increment-stats', [
       }
     }
 
-    await db.supabaseQuery(
+    await db.query(
       `UPDATE vendors 
        SET pages_printed = COALESCE(pages_printed, 0) + $1, 
            platform_fee = COALESCE(platform_fee, 0) + $2 
@@ -192,7 +185,7 @@ router.post('/files/clear-vendor', [
 
     // Optimize: Instead of LISTing the R2 bucket (Class A), we query the database
     // This is much faster and cheaper as it avoids scanning the entire bucket folder.
-    const result = await db.supabaseQuery(
+    const result = await db.query(
       'SELECT id, object_key FROM uploaded_files WHERE LOWER(vendor_id) = LOWER($1) AND deleted_at IS NULL',
       [sanitizedVendorId]
     );
@@ -216,7 +209,7 @@ router.post('/files/clear-vendor', [
     }
 
     // Mark as deleted in DB
-    await db.supabaseQuery(
+    await db.query(
       'UPDATE uploaded_files SET deleted_at = NOW() WHERE id = ANY($1)',
       [idsToDelete]
     );
@@ -262,7 +255,7 @@ router.post('/files/upload-url', [
     // 0. Get user's username - with fallback if query/column fails
     let username = `user${req.user.id}`;
     try {
-      const userRes = await db.supabaseQuery('SELECT username FROM users WHERE id = $1', [req.user.id]);
+      const userRes = await db.query('SELECT username FROM users WHERE id = $1', [req.user.id]);
       if (userRes.rows.length > 0 && userRes.rows[0].username) {
         username = userRes.rows[0].username;
       }
@@ -276,12 +269,12 @@ router.post('/files/upload-url', [
     
     if (orderId && contentType !== 'application/json') {
       // Verify the existing order matches the user
-      const check = await db.supabaseQuery('SELECT id FROM orders WHERE id = $1 AND user_id = $2', [orderId, req.user.id]);
+      const check = await db.query('SELECT id FROM orders WHERE id = $1 AND user_id = $2', [orderId, req.user.id]);
       if (check.rows.length === 0) {
         return res.status(403).json({ message: "Invalid orderId provided" });
       }
     } else if (contentType !== 'application/json') {
-      const orderRes = await db.supabaseQuery(
+      const orderRes = await db.query(
         'INSERT INTO orders (user_id, vendor_id, status, page_count, total_amount, is_color) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
         [req.user.id, sanitizedVendorId, 'uploading', pageCount || 1, totalAmount || 0, isColor || false]
       );
@@ -299,7 +292,7 @@ router.post('/files/upload-url', [
 
     // 3. Update the order with the final file name (SKIP FOR JSON)
     if (contentType !== 'application/json') {
-      await db.supabaseQuery(
+      await db.query(
         'UPDATE orders SET file_name = $1 WHERE id = $2',
         [finalFileName, orderId]
       );
@@ -312,7 +305,7 @@ router.post('/files/upload-url', [
 
     // 4. Insert into uploaded_files for storage tracking (1 hour retention)
     const deleteAfter = new Date(Date.now() + 1 * 60 * 60 * 1000);
-    await db.supabaseQuery(
+    await db.query(
       `INSERT INTO uploaded_files (object_key, vendor_id, user_id, file_name, status, delete_after)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [filePath, sanitizedVendorId, req.user.id, finalFileName, 'uploaded', deleteAfter]
@@ -343,7 +336,7 @@ router.post('/orders/:id/confirm-upload', [auth, uploadLimiter], async (req, res
   const { id } = req.params;
   try {
     // 1. Get order details to check file
-    const orderCheck = await db.supabaseQuery(
+    const orderCheck = await db.query(
       'SELECT vendor_id, file_name, status FROM orders WHERE id = $1 AND user_id = $2',
       [id, req.user.id]
     );
@@ -381,7 +374,7 @@ router.post('/orders/:id/confirm-upload', [auth, uploadLimiter], async (req, res
     }
 
     // 3. Update status
-    const result = await db.supabaseQuery(`
+    const result = await db.query(`
       UPDATE orders SET status = 'pending', updated_at = NOW() 
       WHERE id = $1
       RETURNING vendor_id
@@ -399,7 +392,7 @@ router.post('/orders/:id/confirm-upload', [auth, uploadLimiter], async (req, res
 // Get Print History for the current user (PROTECTED)
 router.get('/files/history', auth, async (req, res) => {
   try {
-    const historyRes = await db.supabaseQuery(
+    const historyRes = await db.query(
       `SELECT * FROM (
          SELECT o.file_name, o.created_at as uploaded_at, o.status, f.deleted_at, v.shop_name
          FROM orders o
@@ -466,7 +459,7 @@ router.post('/login', [
 ], async (req, res) => {
   const { vendor_id, password } = req.body;
   try {
-    const result = await db.supabaseQuery(
+    const result = await db.query(
       'SELECT * FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
       [vendor_id]
     );
@@ -527,7 +520,7 @@ router.post('/register', [
       data.color_price, data.paper_sizes, data.has_bw_printer || false, data.has_color_printer || false
     ];
 
-    const result = await db.supabaseQuery(query, values);
+    const result = await db.query(query, values);
     const vendor = result.rows[0];
 
     const jwt = require('jsonwebtoken');
@@ -575,7 +568,7 @@ router.get('/files', [auth, queueLimiter], async (req, res) => {
     if (countCached && (Date.now() - countCached.timestamp < 20000)) {
         totalCount = countCached.count;
     } else {
-        const countRes = await db.supabaseQuery(`
+        const countRes = await db.query(`
           SELECT COUNT(*) FROM orders 
           WHERE LOWER(vendor_id) = LOWER($1) 
           AND status NOT IN ('completed', 'cancelled', 'printed', 'rejected', 'uploading', 'failed')
@@ -585,7 +578,7 @@ router.get('/files', [auth, queueLimiter], async (req, res) => {
     }
 
     // Fetch from Database
-    const result = await db.supabaseQuery(`
+    const result = await db.query(`
       SELECT 
         o.id, 
         o.file_name, 
@@ -690,7 +683,7 @@ router.post('/printed-legacy', auth, async (req, res) => {
   try {
     // Verify the order belongs to this vendor before updating
     const authVendorId = req.user.vendor_id;
-    const checkRes = await db.supabaseQuery("SELECT vendor_id FROM orders WHERE id = $1", [id]);
+    const checkRes = await db.query("SELECT vendor_id FROM orders WHERE id = $1", [id]);
     
     if (checkRes.rows.length === 0) {
       return res.status(404).json({ message: "Order not found" });
@@ -705,7 +698,7 @@ router.post('/printed-legacy', auth, async (req, res) => {
       return res.json({ message: "Order already marked as printed", status: "success" });
     }
     
-    await db.supabaseQuery("UPDATE orders SET status = 'printed', updated_at = NOW() WHERE id = $1", [id]);
+    await db.query("UPDATE orders SET status = 'printed', updated_at = NOW() WHERE id = $1", [id]);
     logStatusChange(id, oldStatus, 'printed');
     invalidateCache(checkRes.rows[0].vendor_id);
 
@@ -721,7 +714,7 @@ router.post('/delete', auth, async (req, res) => {
   try {
     // Verify the order belongs to this vendor before cancelling
     const authVendorId = req.user.vendor_id;
-    const checkRes = await db.supabaseQuery("SELECT * FROM orders WHERE id = $1", [id]);
+    const checkRes = await db.query("SELECT * FROM orders WHERE id = $1", [id]);
     
     if (checkRes.rows.length === 0) {
       return res.status(404).json({ message: "Order not found" });
@@ -734,7 +727,7 @@ router.post('/delete', auth, async (req, res) => {
     }
 
     // Move to archived_orders instead of just changing status inside orders directly
-    await db.supabaseQuery(`
+    await db.query(`
       INSERT INTO archived_orders (original_id, user_id, vendor_id, status, page_count, total_amount, is_color, file_name, created_at, archived_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
     `, [
@@ -743,7 +736,7 @@ router.post('/delete', auth, async (req, res) => {
       orderData.file_name, orderData.created_at
     ]);
     
-    await db.supabaseQuery("DELETE FROM orders WHERE id = $1", [id]);
+    await db.query("DELETE FROM orders WHERE id = $1", [id]);
     logStatusChange(id, orderData.status, 'cancelled (archived)');
 
     invalidateCache(orderData.vendor_id);
@@ -782,7 +775,7 @@ router.patch('/orders/:id', auth, async (req, res) => {
     values.push(id);
     const query = `UPDATE orders SET ${updates.join(', ')} WHERE id = $${paramCounter}`;
     
-    await db.supabaseQuery(query, values);
+    await db.query(query, values);
     res.json({ success: true, message: "Order updated successfully" });
   } catch (err) {
     handleError(res, err, "Updating order details failed");
@@ -875,7 +868,7 @@ router.put('/settings', [
       WHERE LOWER(vendor_id) = LOWER($${paramCounter})
       RETURNING *`;
 
-    const result = await db.supabaseQuery(query, values);
+    const result = await db.query(query, values);
     
     if (result.rows.length === 0) {
       return res.status(404).json({ message: "Vendor not found" });
@@ -895,7 +888,7 @@ router.put('/settings', [
 router.get('/settings/me', auth, async (req, res) => {
   const vendorIdFromAuth = req.user.vendor_id;
   try {
-    const result = await db.supabaseQuery(
+    const result = await db.query(
       'SELECT shop_name, bw_price, color_price, upi_id, auto_accept_jobs, enable_upi, min_amount, has_bw_printer, has_color_printer, bw_printer, color_printer FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
       [vendorIdFromAuth]
     );
@@ -914,7 +907,7 @@ router.get('/settings/me', auth, async (req, res) => {
 router.get('/activity-log', auth, async (req, res) => {
   const vendorIdFromAuth = req.user.vendor_id;
   try {
-    const result = await db.supabaseQuery(`
+    const result = await db.query(`
       SELECT * FROM (
         SELECT 
           o.id, 
@@ -961,7 +954,7 @@ router.post('/update-order-status', [
 
   try {
     // Ensure the order belongs to this vendor
-    const checkRes = await db.supabaseQuery(
+    const checkRes = await db.query(
       'SELECT vendor_id, status FROM orders WHERE id = $1',
       [orderId]
     );
@@ -979,7 +972,7 @@ router.post('/update-order-status', [
       return res.json({ success: true, message: `Order already marked as ${status}` });
     }
     
-    await db.supabaseQuery(
+    await db.query(
       'UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2',
       [status, orderId]
     );

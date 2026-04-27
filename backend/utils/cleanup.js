@@ -18,7 +18,7 @@ const cleanupOldFiles = async () => {
     }
 
     // 1. Query only specific files marked for deletion whose time has come
-    const expiredResult = await db.supabaseQuery(
+    const expiredResult = await db.query(
       'SELECT id, object_key FROM uploaded_files WHERE delete_after <= NOW() AND deleted_at IS NULL'
     );
 
@@ -44,7 +44,7 @@ const cleanupOldFiles = async () => {
         }));
 
         // 3. Mark as deleted in DB
-        await db.supabaseQuery(
+        await db.query(
           'UPDATE uploaded_files SET deleted_at = NOW() WHERE id = ANY($1)',
           [ids]
         );
@@ -70,33 +70,33 @@ const cleanupDatabaseHistory = async () => {
   console.log('[Cleanup] purging old database history (1h history / 1h queue policy)...');
   try {
     // 1. Delete completed/failed records after 1 hour (History)
-    const historyRes = await db.supabaseQuery(`
+    const historyRes = await db.query(`
       DELETE FROM uploaded_files 
       WHERE status IN ('printed', 'failed') 
       AND uploaded_at <= NOW() - INTERVAL '1 hour'
     `);
 
     // 1.5 Delete abandoned 'uploading' orders after 30 minutes
-    const abandonedRes = await db.supabaseQuery(`
+    const abandonedRes = await db.query(`
       DELETE FROM orders 
       WHERE status = 'uploading' AND created_at <= NOW() - INTERVAL '30 minutes'
     `);
 
     // 2. Move old order records to archived_orders after 1 hour, then delete
-    await db.supabaseQuery(`
+    await db.query(`
       INSERT INTO archived_orders (original_id, user_id, vendor_id, status, page_count, total_amount, is_color, file_name, created_at, archived_at)
       SELECT id, user_id, vendor_id, status, page_count, total_amount, is_color, file_name, created_at, NOW()
       FROM orders 
       WHERE created_at <= NOW() - INTERVAL '1 hour'
     `);
 
-    const orderRes = await db.supabaseQuery(`
+    const orderRes = await db.query(`
       DELETE FROM orders 
       WHERE created_at <= NOW() - INTERVAL '1 hour'
     `);
 
     // 3. Absolute 1 hour purge for everything (Queue limit)
-    const absoluteRes = await db.supabaseQuery(`
+    const absoluteRes = await db.query(`
       DELETE FROM uploaded_files 
       WHERE uploaded_at <= NOW() - INTERVAL '1 hour'
     `);
@@ -114,7 +114,7 @@ const cleanupDatabaseHistory = async () => {
 const cleanupCompletedJobs = async () => {
   console.log('[Cleanup] Checking for freshly printed jobs to purge from storage...');
   try {
-    const result = await db.supabaseQuery(`
+    const result = await db.query(`
       SELECT id, object_key FROM uploaded_files 
       WHERE status = 'printed' 
       AND deleted_at IS NULL
@@ -140,7 +140,7 @@ const cleanupCompletedJobs = async () => {
     }
 
     // 2. Mark as deleted in DB (will be permanently removed by history purger later)
-    await db.supabaseQuery(
+    await db.query(
       'UPDATE uploaded_files SET deleted_at = NOW() WHERE id = ANY($1)',
       [ids]
     );

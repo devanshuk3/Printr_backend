@@ -5,6 +5,7 @@ const auth = require('../middleware/auth');
 const { body } = require('express-validator');
 const { validate } = require('../middleware/validator');
 const { generalLimiter } = require('../middleware/rateLimiter');
+const handleError = require('../utils/errorHandler');
 
 router.use(generalLimiter);
 
@@ -14,13 +15,7 @@ router.use(generalLimiter);
  */
 const PLATFORM_FEE_PERCENT = 0.08;
 
-/**
- * @helper Sanitize error message for production
- */
-const handleError = (res, err, customMsg = "Something went wrong on our end. Please try again later.") => {
-  console.error(`${customMsg}:`, err.message || err);
-  return res.status(500).json({ message: customMsg });
-};
+
 
 /**
  * Parse a page range string (e.g. "1-5, 8, 10-12") and return the count of unique pages.
@@ -88,7 +83,7 @@ router.post('/calculate', [
 
   try {
     // 1. Fetch vendor pricing from the database (authoritative source)
-    const vendorRes = await db.supabaseQuery(
+    const vendorRes = await db.query(
       'SELECT bw_price, color_price, has_bw_printer, has_color_printer FROM vendors WHERE LOWER(TRIM(vendor_id)) = LOWER(TRIM($1))',
       [vendorId]
     );
