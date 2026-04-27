@@ -458,6 +458,7 @@ router.post('/login', [
   validate
 ], async (req, res) => {
   const { vendor_id, password } = req.body;
+  
   try {
     const result = await db.query(
       'SELECT * FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
