@@ -41,3 +41,10 @@ backend/logs/
 # Misc
 mobile-app/.metro-health-check*
 mobile-app/*.tsbuildinfo
+
+# Debug / One-off Scripts
+backend/check_cols.js
+backend/check_nulls.js
+backend/update-db.js
+backend/migrate.js
+backend/migrate-config.js

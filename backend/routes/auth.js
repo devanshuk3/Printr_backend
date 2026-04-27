@@ -12,18 +12,11 @@ const auth = require('../middleware/auth');
 const { authLimiter } = require('../middleware/rateLimiter');
 const { generateOTP, hashToken } = require('../utils/otp');
 const { sendOTPEmail } = require('../utils/mailer');
+const handleError = require('../utils/errorHandler');
 
 const MAX_OTP_ATTEMPTS = 5;
 
-/**
- * @helper Sanitize error message for production
- */
-const handleError = (res, err, customMsg = "Something went wrong on our end. Please try again later.") => {
-  console.error(`${customMsg}:`, err.message || err);
-  return res.status(500).json({ 
-    message: customMsg
-  });
-};
+
 
 // Register
 router.post('/register', [
@@ -92,8 +85,8 @@ router.post('/register', [
 // Login
 router.post('/login', [
   authLimiter,
-  body('identifier').trim().notEmpty().withMessage('Email or username is required').escape(),
-  body('password').notEmpty().withMessage('Password is required'),
+  body('identifier').trim().notEmpty().withMessage('Email or username is required').isString().escape(),
+  body('password').notEmpty().withMessage('Password is required').isString(),
   validate
 ], async (req, res) => {
   const { identifier, password } = req.body;
@@ -112,6 +105,9 @@ router.post('/login', [
     const user = userRes.rows[0];
 
     // Validate password
+    if (!user.password) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(400).json({ message: "Invalid credentials" });
@@ -126,7 +122,7 @@ router.post('/login', [
     }
 
     const token = jwt.sign(
-      { id: user.id },
+      { id: user.id, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -149,14 +145,14 @@ router.post('/login', [
 // Verify current session
 router.get('/verify', auth, async (req, res) => {
   try {
-    const userRes = await db.query('SELECT id, full_name, email, username FROM users WHERE id = $1', [req.user.id]);
+    const userRes = await db.query('SELECT id, full_name, email, username, role FROM users WHERE id = $1', [req.user.id]);
     
     if (userRes.rows.length === 0) {
       return res.status(404).json({ message: "User not found" });
     }
 
     const user = userRes.rows[0];
-    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     res.json({
       token,
@@ -217,7 +213,7 @@ router.post('/google', [
       const hashedPassword = await bcrypt.hash(randomPassword, salt);
 
       const newUser = await db.query(
-        'INSERT INTO users (full_name, email, username, password, is_verified) VALUES ($1, $2, $3, $4, true) RETURNING id, full_name, email, username',
+        'INSERT INTO users (full_name, email, username, password, is_verified) VALUES ($1, $2, $3, $4, true) RETURNING id, full_name, email, username, role',
         [name, email, username, hashedPassword]
       );
       user = newUser.rows[0];
@@ -225,7 +221,7 @@ router.post('/google', [
       user = userRes.rows[0];
     }
 
-    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     res.json({
       token,
@@ -330,7 +326,7 @@ router.post('/verify-email', [
 
     // Fetch user and issue JWT so they're logged in immediately after verification
     const userRes = await db.query(
-      'SELECT id, full_name, email, username FROM users WHERE id = $1',
+      'SELECT id, full_name, email, username, role FROM users WHERE id = $1',
       [userId]
     );
 
@@ -339,7 +335,7 @@ router.post('/verify-email', [
     }
 
     const user = userRes.rows[0];
-    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     res.json({
       success: true,

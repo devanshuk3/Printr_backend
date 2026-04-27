@@ -41,7 +41,7 @@ export const OTPModal: React.FC<OTPModalProps> = ({ visible, userId, onClose, on
 
   // Countdown timer for resend cooldown
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: any;
     if (timer > 0) {
       interval = setInterval(() => setTimer((t) => t - 1), 1000);
     }

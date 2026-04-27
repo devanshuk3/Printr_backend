@@ -7,16 +7,12 @@ const db = require('../db');
 module.exports = function (allowedRoles) {
   return async (req, res, next) => {
     try {
-      // req.user.id is set by auth middleware
-      const result = await db.query('SELECT role FROM users WHERE id = $1', [req.user.id]);
-      
-      if (result.rows.length === 0) {
+      // req.user is set by auth middleware and now includes the role claim
+      if (!req.user || !req.user.role) {
         return res.status(401).json({ message: 'User verification failed' });
       }
 
-      const userRole = result.rows[0].role;
-
-      if (!allowedRoles.includes(userRole)) {
+      if (!allowedRoles.includes(req.user.role)) {
         return res.status(403).json({ message: 'Access denied: Insufficient permissions' });
       }
 

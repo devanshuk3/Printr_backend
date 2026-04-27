@@ -96,10 +96,6 @@ const initDb = async () => {
       try {
         console.log(`[Init] Ensuring table exists: ${table.name}`);
         await db.query(table.query);
-        // Also run on Supabase (if primary pool is different)
-        if (db.query !== db.supabaseQuery) {
-            await db.supabaseQuery(table.query);
-        }
       } catch (err) {
         console.warn(`[Init] Warning/Check failed for ${table.name}:`, err.message);
       }
@@ -139,9 +135,6 @@ const initDb = async () => {
     for (const sql of migrations) {
       try {
         await db.query(sql);
-        if (db.query !== db.supabaseQuery) {
-            await db.supabaseQuery(sql);
-        }
       } catch (err) {
         // Silent ignore for IF NOT EXISTS cases
       }
@@ -149,10 +142,7 @@ const initDb = async () => {
 
     // 3. Special Migrations (one-off data fixes)
     try { 
-        await db.supabaseQuery("UPDATE vendors SET shop_name = name WHERE shop_name IS NULL OR shop_name = ''"); 
-        if (db.query !== db.supabaseQuery) {
-            await db.query("UPDATE vendors SET shop_name = name WHERE shop_name IS NULL OR shop_name = ''"); 
-        }
+        await db.query("UPDATE vendors SET shop_name = name WHERE shop_name IS NULL OR shop_name = ''"); 
     } catch(e) {}
 
     // 4. Grandfather existing users as verified (prevents lockout after deploying OTP feature)
