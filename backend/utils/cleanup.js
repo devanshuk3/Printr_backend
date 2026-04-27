@@ -18,9 +18,20 @@ const cleanupOldFiles = async () => {
     }
 
     // 1. Query only specific files marked for deletion whose time has come
-    const expiredResult = await db.query(
-      'SELECT id, object_key FROM uploaded_files WHERE delete_after <= NOW() AND deleted_at IS NULL'
-    );
+    // SKIP files that belong to an active pending order
+    const expiredResult = await db.query(`
+      SELECT id, object_key FROM uploaded_files 
+      WHERE delete_after <= NOW() 
+        AND deleted_at IS NULL
+        AND (
+          status IN ('printed', 'failed') 
+          OR NOT EXISTS (
+            SELECT 1 FROM orders 
+            WHERE orders.file_name = uploaded_files.file_name 
+            AND orders.status = 'pending'
+          )
+        )
+    `);
 
     const allObjectsToDelete = expiredResult.rows;
 
@@ -83,22 +94,33 @@ const cleanupDatabaseHistory = async () => {
     `);
 
     // 2. Move old order records to archived_orders after 1 hour, then delete
+    // ONLY for orders that are already processed (printed or cancelled)
     await db.query(`
       INSERT INTO archived_orders (original_id, user_id, vendor_id, status, page_count, total_amount, is_color, file_name, created_at, archived_at)
       SELECT id, user_id, vendor_id, status, page_count, total_amount, is_color, file_name, created_at, NOW()
       FROM orders 
       WHERE created_at <= NOW() - INTERVAL '1 hour'
+      AND status IN ('printed', 'cancelled', 'completed', 'failed', 'rejected')
     `);
 
     const orderRes = await db.query(`
       DELETE FROM orders 
       WHERE created_at <= NOW() - INTERVAL '1 hour'
+      AND status IN ('printed', 'cancelled', 'completed', 'failed', 'rejected')
     `);
 
-    // 3. Absolute 1 hour purge for everything (Queue limit)
+    // 3. Purge uploaded_files after 1 hour ONLY if they are printed or have no active pending order
     const absoluteRes = await db.query(`
       DELETE FROM uploaded_files 
       WHERE uploaded_at <= NOW() - INTERVAL '1 hour'
+      AND (
+        status IN ('printed', 'failed') 
+        OR NOT EXISTS (
+          SELECT 1 FROM orders 
+          WHERE orders.file_name = uploaded_files.file_name 
+          AND orders.status = 'pending'
+        )
+      )
     `);
 
     console.log(`[Cleanup] purged ${historyRes.rowCount || 0} history, ${orderRes.rowCount || 0} orders, and ${absoluteRes.rowCount || 0} expired queue items.`);
@@ -115,9 +137,11 @@ const cleanupCompletedJobs = async () => {
   console.log('[Cleanup] Checking for freshly printed jobs to purge from storage...');
   try {
     const result = await db.query(`
-      SELECT id, object_key FROM uploaded_files 
-      WHERE status = 'printed' 
-      AND deleted_at IS NULL
+      SELECT f.id, f.object_key 
+      FROM uploaded_files f
+      JOIN orders o ON f.file_name = o.file_name
+      WHERE o.status = 'printed' 
+      AND f.deleted_at IS NULL
     `);
 
     if (result.rows.length === 0) return;
