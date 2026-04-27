@@ -3,9 +3,8 @@ const { Pool } = require('pg');
 
 const poolConfig = {
   connectionString: process.env.SUPABASE_URL || `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`,
-  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: true } : 
-       (process.env.DB_SSL === 'false' ? { rejectUnauthorized: false } : false),
-  max: 40, // Maximum pool size
+  ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false }, // Default to SSL for Supabase, only disable if strictly 'false'
+  max: 30, // Maximum pool size optimized to 30
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
   keepAlive: true,

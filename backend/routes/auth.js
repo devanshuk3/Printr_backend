@@ -85,8 +85,8 @@ router.post('/register', [
 // Login
 router.post('/login', [
   authLimiter,
-  body('identifier').trim().notEmpty().withMessage('Email or username is required').escape(),
-  body('password').notEmpty().withMessage('Password is required'),
+  body('identifier').trim().notEmpty().withMessage('Email or username is required').isString().escape(),
+  body('password').notEmpty().withMessage('Password is required').isString(),
   validate
 ], async (req, res) => {
   const { identifier, password } = req.body;
@@ -105,6 +105,9 @@ router.post('/login', [
     const user = userRes.rows[0];
 
     // Validate password
+    if (!user.password) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(400).json({ message: "Invalid credentials" });

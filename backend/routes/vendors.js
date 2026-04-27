@@ -453,8 +453,8 @@ router.get('/files/history', auth, async (req, res) => {
 // 1. Vendor Login (Compatibility for Auth.tsx)
 router.post('/login', [
   authLimiter,
-  body('vendor_id').trim().notEmpty().withMessage('Vendor ID is required').escape(),
-  body('password').notEmpty().withMessage('Password is required'),
+  body('vendor_id').trim().notEmpty().withMessage('Vendor ID is required').isString().escape(),
+  body('password').notEmpty().withMessage('Password is required').isString(),
   validate
 ], async (req, res) => {
   const { vendor_id, password } = req.body;
@@ -469,6 +469,9 @@ router.post('/login', [
     }
 
     const vendor = result.rows[0];
+    if (!vendor.password) {
+      return res.status(401).json({ success: false, message: "Invalid credentials" });
+    }
     const isMatch = await bcrypt.compare(password, vendor.password);
     if (!isMatch) {
       return res.status(401).json({ success: false, message: "Invalid credentials" });
