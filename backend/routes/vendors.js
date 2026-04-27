@@ -305,7 +305,7 @@ router.post('/files/upload-url', [
 
     // 4. Insert into uploaded_files for storage tracking (1 hour retention)
     const deleteAfter = new Date(Date.now() + 1 * 60 * 60 * 1000);
-    await db.supabaseQuery(
+    await db.query(
       `INSERT INTO uploaded_files (object_key, vendor_id, user_id, file_name, status, delete_after)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [filePath, sanitizedVendorId, req.user.id, finalFileName, 'uploaded', deleteAfter]
@@ -697,11 +697,15 @@ router.post('/printed-legacy', auth, async (req, res) => {
     }
 
     const oldStatus = checkRes.rows[0].status;
-    if (oldStatus === 'printed') {
-      return res.json({ message: "Order already marked as printed", status: "success" });
-    }
-    
     await db.query("UPDATE orders SET status = 'printed', updated_at = NOW() WHERE id = $1", [id]);
+    
+    // Also update uploaded_files status to sync with cleanup policy
+    await db.query(`
+      UPDATE uploaded_files 
+      SET status = 'printed' 
+      WHERE file_name = (SELECT file_name FROM orders WHERE id = $1)
+    `, [id]);
+
     logStatusChange(id, oldStatus, 'printed');
     invalidateCache(checkRes.rows[0].vendor_id);
 
@@ -729,18 +733,17 @@ router.post('/delete', auth, async (req, res) => {
       return res.status(403).json({ message: "Access denied: This order does not belong to your account" });
     }
 
-    // Move to archived_orders instead of just changing status inside orders directly
-    await db.supabaseQuery(`
-      INSERT INTO archived_orders (original_id, user_id, vendor_id, status, page_count, total_amount, is_color, file_name, created_at, archived_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-    `, [
-      orderData.id, orderData.user_id, orderData.vendor_id, 'cancelled',
-      orderData.page_count, orderData.total_amount, orderData.is_color,
-      orderData.file_name, orderData.created_at
-    ]);
+    // Just change status so the order stays in queue for an hour (cleanup handles archiving later)
+    await db.query("UPDATE orders SET status = 'cancelled', updated_at = NOW() WHERE id = $1", [id]);
     
-    await db.supabaseQuery("DELETE FROM orders WHERE id = $1", [id]);
-    logStatusChange(id, orderData.status, 'cancelled (archived)');
+    // Also update uploaded_files status to sync with cleanup policy
+    await db.query(`
+      UPDATE uploaded_files 
+      SET status = 'cancelled' 
+      WHERE file_name = (SELECT file_name FROM orders WHERE id = $1)
+    `, [id]);
+
+    logStatusChange(id, orderData.status, 'cancelled (stays in queue for 1h)');
 
     invalidateCache(orderData.vendor_id);
 
@@ -979,6 +982,12 @@ router.post('/update-order-status', [
       'UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2',
       [status, orderId]
     );
+
+    await db.query(`
+      UPDATE uploaded_files 
+      SET status = $1 
+      WHERE file_name = (SELECT file_name FROM orders WHERE id = $2)
+    `, [status, orderId]);
     
     logStatusChange(orderId, oldStatus, status);
 
