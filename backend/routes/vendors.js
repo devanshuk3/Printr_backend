@@ -490,8 +490,8 @@ router.post('/register', [
   const data = req.body;
   try {
     const query = `
-      INSERT INTO vendors (vendor_id, password, full_name, shop_name, name, phone, upi_id, address, bw_price, color_price, paper_sizes, has_bw_printer, has_color_printer)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      INSERT INTO vendors (vendor_id, password, full_name, shop_name, phone, upi_id, address, bw_price, color_price, paper_sizes, has_bw_printer, has_color_printer)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *`;
 
     // Hash password first
@@ -499,7 +499,7 @@ router.post('/register', [
     const hashedPassword = await bcrypt.hash(data.password, salt);
 
     const values = [
-      data.vendor_id, hashedPassword, data.full_name, data.shop_name, data.shop_name,
+      data.vendor_id, hashedPassword, data.full_name, data.shop_name,
       data.phone, data.upi_id, data.address, data.bw_price,
       data.color_price, data.paper_sizes, data.has_bw_printer || false, data.has_color_printer || false
     ];
