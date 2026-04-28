@@ -27,7 +27,7 @@ const nonNegativeInt = z.coerce.number().int().min(0);
 const nonNegativeFloat = z.coerce.number().min(0);
 
 /** Page range string e.g. "1-5, 8, 10-12" — basic format validation */
-const pageRangeField = z.string().trim().max(500).regex(/^[\d\s,\-]+$/, 'Invalid page range format').optional();
+const pageRangeField = z.string().trim().max(500).regex(/^[\d\s,\-]*$/, 'Invalid page range format').optional();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AUTH SCHEMAS
