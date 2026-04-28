@@ -49,8 +49,25 @@ export const OTPModal: React.FC<OTPModalProps> = ({ visible, userId, onClose, on
   }, [timer]);
 
   const handleDigitChange = (text: string, index: number) => {
-    // Only allow single numeric digit
-    const digit = text.replace(/[^0-9]/g, '').slice(-1);
+    // Strip non-numeric characters
+    const cleaned = text.replace(/[^0-9]/g, '');
+
+    // Handle paste: if multiple digits arrived, spread them across boxes
+    if (cleaned.length > 1) {
+      const pastedDigits = cleaned.slice(0, OTP_LENGTH).split('');
+      const newDigits = [...digits];
+      for (let i = 0; i < pastedDigits.length && (index + i) < OTP_LENGTH; i++) {
+        newDigits[index + i] = pastedDigits[i];
+      }
+      setDigits(newDigits);
+      // Focus the box after the last filled one, or the last box
+      const focusIndex = Math.min(index + pastedDigits.length, OTP_LENGTH - 1);
+      inputRefs.current[focusIndex]?.focus();
+      return;
+    }
+
+    // Single digit entry
+    const digit = cleaned.slice(-1);
     const newDigits = [...digits];
     newDigits[index] = digit;
     setDigits(newDigits);
@@ -164,7 +181,6 @@ export const OTPModal: React.FC<OTPModalProps> = ({ visible, userId, onClose, on
                   onChangeText={(text) => handleDigitChange(text, i)}
                   onKeyPress={(e) => handleKeyPress(e, i)}
                   keyboardType="number-pad"
-                  maxLength={1}
                   selectTextOnFocus
                   textContentType="oneTimeCode"
                 />
