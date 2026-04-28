@@ -4,14 +4,22 @@ const db = require('../db');
 const r2 = require('../r2');
 const { GetObjectCommand, PutObjectCommand, ListObjectsV2Command, DeleteObjectsCommand, HeadObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
-const { param, body } = require('express-validator');
-const { validate } = require('../middleware/validator');
 const auth = require('../middleware/auth');
 const checkRole = require('../middleware/roleAuth');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
-const { generalLimiter, uploadLimiter, queueLimiter, authLimiter } = require('../middleware/rateLimiter');
+const { generalLimiter, uploadLimiter, queueLimiter, authLimiter, sensitiveLimiter, destructiveLimiter, downloadLimiter } = require('../middleware/rateLimiter');
 const handleError = require('../utils/errorHandler');
+const { validateBody, validateParams, validateQuery } = require('../middleware/validator');
+const {
+  vendorLoginSchema, vendorRegisterSchema, vendorSettingsSchema,
+  uploadUrlSchema, orderBatchSchema, patchOrderSchema,
+  incrementStatsSchema, updateOrderStatusSchema, clearVendorSchema,
+  downloadSchema, printedLegacySchema, deleteOrderSchema,
+  vendorIdParamSchema, fileParamsSchema, orderIdParamSchema,
+  queueQuerySchema, downloadQuerySchema,
+} = require('../middleware/schemas');
+const { checkVendorLockout, recordVendorFailedAttempt, resetVendorFailedAttempts } = require('../utils/lockout');
 
 
 // ── Application-Level Queue Caching (Limits DB requests on dashboard polling) ──
@@ -41,11 +49,8 @@ const logStatusChange = (orderId, fromStatus, toStatus) => {
 /**
  * @endpoint Initialize a batch of orders before payment/upload
  */
-router.post('/orders/batch', [auth, uploadLimiter], async (req, res) => {
-  const { vendorId, files } = req.body; 
-  if (!vendorId || !Array.isArray(files)) {
-    return res.status(400).json({ message: "vendorId and files array are required" });
-  }
+router.post('/orders/batch', [auth, uploadLimiter, validateBody(orderBatchSchema)], async (req, res) => {
+  const { vendorId, files } = req.body;
 
   try {
     const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
@@ -69,8 +74,7 @@ router.post('/orders/batch', [auth, uploadLimiter], async (req, res) => {
 
 // Verify Vendor ID (Publicly accessible but sanitized)
 router.get('/verify/:vendorId', [
-  param('vendorId').trim().notEmpty().withMessage('Vendor ID is required').isAlphanumeric().withMessage('Invalid characters in Vendor ID').escape(),
-  validate
+  validateParams(vendorIdParamSchema),
 ], async (req, res) => {
   const { vendorId } = req.params;
 
@@ -102,11 +106,8 @@ router.get('/all', [auth, checkRole(['admin'])], async (req, res) => {
 
 // Increment vendor stats after successful print (PROTECTED)
 router.post('/increment-stats', [
-  auth, // Require valid token
-  body('vendorId').trim().notEmpty().withMessage('Vendor ID is required').escape(),
-  body('pages').isInt({ min: 1 }).withMessage('Pages must be at least 1'),
-  body('totalAmount').optional().isFloat({ min: 0 }).withMessage('Total amount must be a non-negative number'),
-  validate
+  auth,
+  validateBody(incrementStatsSchema),
 ], async (req, res) => {
   const { vendorId, pages, totalAmount } = req.body;
 
@@ -147,9 +148,8 @@ router.post('/increment-stats', [
 // Generate a secure Signed URL for a file (Download/View) (PROTECTED)
 router.get('/files/:vendorId/:fileName', [
   auth,
-  param('vendorId').trim().notEmpty().escape(),
-  param('fileName').trim().notEmpty().escape(),
-  validate
+  downloadLimiter,
+  validateParams(fileParamsSchema),
 ], async (req, res) => {
   const { vendorId, fileName } = req.params;
 
@@ -172,8 +172,8 @@ router.get('/files/:vendorId/:fileName', [
 // This ensures each vendor has only ONE folder/batch of files at a time
 router.post('/files/clear-vendor', [
   auth,
-  body('vendorId').trim().notEmpty().matches(/^[a-zA-Z0-9_-]+$/).withMessage('Invalid Vendor ID format'),
-  validate
+  destructiveLimiter,
+  validateBody(clearVendorSchema),
 ], async (req, res) => {
   const { vendorId } = req.body;
 
@@ -227,27 +227,7 @@ router.post('/files/clear-vendor', [
 router.post('/files/upload-url', [
   auth,
   uploadLimiter,
-  body('vendorId').trim().notEmpty().matches(/^[a-zA-Z0-9_-]+$/).withMessage('Invalid Vendor ID format'),
-  body('fileName').trim().notEmpty().isLength({ max: 100 }).escape(),
-  body('contentType').trim().notEmpty().isIn([
-    'application/pdf',
-    'image/jpeg',
-    'image/jpg',
-    'image/png',
-    'image/webp',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/octet-stream',
-    'application/json'
-  ]).withMessage('Unsupported file type'),
-  body('totalPages').optional().isInt().withMessage('totalPages must be an integer'),
-  body('totalAmount').optional().isFloat().withMessage('totalAmount must be a number'),
-  body('orderId').optional().isInt().withMessage('orderId must be an integer'),
-  validate
+  validateBody(uploadUrlSchema),
 ], async (req, res) => {
   const { vendorId, fileName, contentType, totalPages, totalAmount, isColor, pageCount, orderId: existingOrderId } = req.body;
 
@@ -453,13 +433,17 @@ router.get('/files/history', auth, async (req, res) => {
 // 1. Vendor Login (Compatibility for Auth.tsx)
 router.post('/login', [
   authLimiter,
-  body('vendor_id').trim().notEmpty().withMessage('Vendor ID is required').isString().escape(),
-  body('password').notEmpty().withMessage('Password is required').isString(),
-  validate
+  validateBody(vendorLoginSchema),
 ], async (req, res) => {
   const { vendor_id, password } = req.body;
   
   try {
+    // ── Account lockout check ──
+    const lockoutStatus = await checkVendorLockout(vendor_id);
+    if (lockoutStatus.locked) {
+      return res.status(423).json({ success: false, message: lockoutStatus.message });
+    }
+
     const result = await db.query(
       'SELECT * FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
       [vendor_id]
@@ -475,8 +459,13 @@ router.post('/login', [
     }
     const isMatch = await bcrypt.compare(password, vendor.password);
     if (!isMatch) {
+      // ── Record failed attempt & potentially lock ──
+      await recordVendorFailedAttempt(vendor_id);
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
+
+    // ── Reset failed attempts on success ──
+    await resetVendorFailedAttempts(vendor_id);
 
     // Reuse the user JWT secret for simplicity if needed, or vendor-specific token
     const jwt = require('jsonwebtoken');
@@ -496,16 +485,7 @@ router.post('/login', [
 // 2. Vendor Registration
 router.post('/register', [
   authLimiter,
-  body('vendor_id').trim().notEmpty().withMessage('Vendor ID is required').isAlphanumeric().withMessage('Vendor ID must be alphanumeric').escape(),
-  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
-  body('full_name').trim().notEmpty().withMessage('Full name is required').escape(),
-  body('shop_name').trim().notEmpty().withMessage('Shop name is required').escape(),
-  body('phone').optional().trim().escape(),
-  body('upi_id').optional().trim().escape(),
-  body('address').optional().trim().escape(),
-  body('bw_price').optional().isFloat({ min: 0 }).withMessage('BW price must be non-negative'),
-  body('color_price').optional().isFloat({ min: 0 }).withMessage('Color price must be non-negative'),
-  validate
+  validateBody(vendorRegisterSchema),
 ], async (req, res) => {
   const data = req.body;
   try {
@@ -542,9 +522,8 @@ router.post('/register', [
 });
 
 // 3. List Queue (replaces /api/r2/files) (PROTECTED)
-router.get('/files', [auth, queueLimiter], async (req, res) => {
+router.get('/files', [auth, queueLimiter, validateQuery(queueQuerySchema)], async (req, res) => {
   const vendorId = req.query.vendor_id;
-  if (!vendorId) return res.status(400).json({ message: "vendor_id is required" });
 
   // Verify the authenticated vendor can only access their own queue
   const authVendorId = req.user.vendor_id;
@@ -627,9 +606,8 @@ router.get('/files', [auth, queueLimiter], async (req, res) => {
 });
 
 // 4. Download (replaces /api/r2/download) (PROTECTED)
-router.post('/download', auth, async (req, res) => {
+router.post('/download', [auth, downloadLimiter, validateBody(downloadSchema)], async (req, res) => {
   const { file_key, id } = req.body;
-  if (!file_key) return res.status(400).json({ message: "file_key is required" });
 
   try {
     // Verify that the file belongs to the authenticated vendor's folder
@@ -655,9 +633,8 @@ router.post('/download', auth, async (req, res) => {
 });
 
 // GET version for compatibility with frontend preference fetching
-router.get('/download', auth, async (req, res) => {
+router.get('/download', [auth, downloadLimiter, validateQuery(downloadQuerySchema)], async (req, res) => {
   const file_key = req.query.key;
-  if (!file_key) return res.status(400).json({ message: "key is required" });
 
   try {
     const authVendorId = req.user.vendor_id;
@@ -682,7 +659,7 @@ router.get('/download', auth, async (req, res) => {
 });
 
 // 5. Printed (replaces /api/r2/printed) (PROTECTED)
-router.post('/printed-legacy', auth, async (req, res) => {
+router.post('/printed-legacy', [auth, sensitiveLimiter, validateBody(printedLegacySchema)], async (req, res) => {
   const { id } = req.body;
   try {
     // Verify the order belongs to this vendor before updating
@@ -717,7 +694,7 @@ router.post('/printed-legacy', auth, async (req, res) => {
 });
 
 // 6. Delete/Cancel Order (replaces /api/r2/delete) (PROTECTED)
-router.post('/delete', auth, async (req, res) => {
+router.post('/delete', [auth, destructiveLimiter, validateBody(deleteOrderSchema)], async (req, res) => {
   const { id } = req.body;
   try {
     // Verify the order belongs to this vendor before cancelling
@@ -755,7 +732,12 @@ router.post('/delete', auth, async (req, res) => {
 });
 
 // 8. Patch Order metadata (e.g. update price/color mode after final checkout)
-router.patch('/orders/:id', auth, async (req, res) => {
+router.patch('/orders/:id', [
+  auth,
+  sensitiveLimiter,
+  validateParams(orderIdParamSchema),
+  validateBody(patchOrderSchema)
+], async (req, res) => {
   const { id } = req.params;
   const { total_amount, is_color, page_count } = req.body;
   
@@ -792,18 +774,8 @@ router.patch('/orders/:id', auth, async (req, res) => {
 // 7. Update Vendor Settings (PROTECTED)
 router.put('/settings', [
   auth,
-  body('shop_name').optional().trim().notEmpty().escape(),
-  body('bw_price').optional().isFloat({ min: 0 }),
-  body('color_price').optional().isFloat({ min: 0 }),
-  body('upi_id').optional().trim().escape(),
-  body('auto_accept_jobs').optional().isBoolean(),
-  body('enable_upi').optional().isBoolean(),
-  body('min_amount').optional().isFloat({ min: 0 }),
-  body('has_bw_printer').optional().isBoolean(),
-  body('has_color_printer').optional().isBoolean(),
-  body('bw_printer').optional().trim().escape(),
-  body('color_printer').optional().trim().escape(),
-  validate
+  sensitiveLimiter,
+  validateBody(vendorSettingsSchema),
 ], async (req, res) => {
   const { 
     shop_name, bw_price, color_price, upi_id, 
@@ -952,9 +924,7 @@ router.get('/activity-log', auth, async (req, res) => {
 // 10. Update Order Status (Verify/Reject)
 router.post('/update-order-status', [
   auth,
-  body('orderId').notEmpty(),
-  body('status').isIn(['printed', 'rejected', 'cancelled']),
-  validate
+  validateBody(updateOrderStatusSchema),
 ], async (req, res) => {
   const { orderId, status } = req.body;
   const vendorIdFromAuth = req.user.vendor_id;

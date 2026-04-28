@@ -6,13 +6,20 @@ const crypto = require('crypto');
 const db = require('../db');
 const { OAuth2Client } = require('google-auth-library');
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-const { body } = require('express-validator');
-const { validate } = require('../middleware/validator');
 const auth = require('../middleware/auth');
-const { authLimiter } = require('../middleware/rateLimiter');
+const { authLimiter, generalLimiter, sensitiveLimiter, destructiveLimiter } = require('../middleware/rateLimiter');
+const { validateBody, validateParams } = require('../middleware/validator');
+const {
+  registerSchema, loginSchema, googleAuthSchema,
+  updateUsernameSchema, verifyEmailSchema, resendOtpSchema,
+  usernameParamSchema,
+} = require('../middleware/schemas');
 const { generateOTP, hashToken } = require('../utils/otp');
 const { sendOTPEmail } = require('../utils/mailer');
 const handleError = require('../utils/errorHandler');
+const {
+  checkUserLockout, recordUserFailedAttempt, resetUserFailedAttempts,
+} = require('../utils/lockout');
 
 const MAX_OTP_ATTEMPTS = 5;
 
@@ -21,11 +28,7 @@ const MAX_OTP_ATTEMPTS = 5;
 // Register
 router.post('/register', [
   authLimiter,
-  body('fullName').trim().notEmpty().withMessage('Full name is required').escape(),
-  body('email').isEmail().withMessage('Invalid email address').normalizeEmail().trim(),
-  body('username').trim().notEmpty().withMessage('Username is required').isLength({ min: 3 }).withMessage('Username must be at least 3 characters long').escape(),
-  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters long'),
-  validate
+  validateBody(registerSchema),
 ], async (req, res) => {
   const { fullName, email, username, password } = req.body;
 
@@ -85,13 +88,17 @@ router.post('/register', [
 // Login
 router.post('/login', [
   authLimiter,
-  body('identifier').trim().notEmpty().withMessage('Email or username is required').isString().escape(),
-  body('password').notEmpty().withMessage('Password is required').isString(),
-  validate
+  validateBody(loginSchema),
 ], async (req, res) => {
   const { identifier, password } = req.body;
 
   try {
+    // ── Account lockout check ──
+    const lockoutStatus = await checkUserLockout(identifier);
+    if (lockoutStatus.locked) {
+      return res.status(423).json({ message: lockoutStatus.message });
+    }
+
     const userRes = await db.query(
       'SELECT * FROM users WHERE LOWER(email) = LOWER($1) OR LOWER(username) = LOWER($1)',
       [identifier]
@@ -110,8 +117,17 @@ router.post('/login', [
     }
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
+      // ── Record failed attempt & potentially lock ──
+      const attempts = await recordUserFailedAttempt(identifier);
+      const remaining = 5 - (attempts || 0);
+      if (remaining <= 0) {
+        return res.status(423).json({ message: "Account locked due to too many failed attempts. Try again in 15 minutes." });
+      }
       return res.status(400).json({ message: "Invalid credentials" });
     }
+
+    // ── Reset failed attempts on successful password match ──
+    await resetUserFailedAttempts(identifier);
 
     // Block login if email not verified
     if (!user.is_verified) {
@@ -143,7 +159,7 @@ router.post('/login', [
 });
 
 // Verify current session
-router.get('/verify', auth, async (req, res) => {
+router.get('/verify', auth, generalLimiter, async (req, res) => {
   try {
     const userRes = await db.query('SELECT id, full_name, email, username, role FROM users WHERE id = $1', [req.user.id]);
     
@@ -169,7 +185,7 @@ router.get('/verify', auth, async (req, res) => {
 });
 
 // Delete account
-router.delete('/account', auth, async (req, res) => {
+router.delete('/account', auth, destructiveLimiter, async (req, res) => {
   try {
     const result = await db.query('DELETE FROM users WHERE id = $1', [req.user.id]);
     if (result.rowCount === 0) return res.status(404).json({ message: "User not found" });
@@ -182,8 +198,7 @@ router.delete('/account', auth, async (req, res) => {
 // Google Login
 router.post('/google', [
   authLimiter,
-  body('idToken').notEmpty().withMessage('ID Token is required'),
-  validate
+  validateBody(googleAuthSchema),
 ], async (req, res) => {
   const { idToken } = req.body;
 
@@ -201,7 +216,7 @@ router.post('/google', [
 
     if (userRes.rows.length === 0) {
       // Create new user
-      let username = email.split('@')[0];
+      let username = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '');
       const checkUsername = await db.query('SELECT * FROM users WHERE username = $1', [username]);
       if (checkUsername.rows.length > 0) {
         username = `${username}_${crypto.randomBytes(2).toString('hex')}`;
@@ -241,8 +256,8 @@ router.post('/google', [
 // Update username
 router.put('/username', [
   auth,
-  body('username').trim().notEmpty().withMessage('Username cannot be empty').isLength({ min: 3 }).withMessage('Username must be at least 3 characters long').escape(),
-  validate
+  sensitiveLimiter,
+  validateBody(updateUsernameSchema),
 ], async (req, res) => {
   const { username } = req.body;
 
@@ -261,7 +276,9 @@ router.put('/username', [
 
 // Get user details by username (for Windows side lookup)
 router.get('/user/:username', [
-  auth
+  auth,
+  generalLimiter,
+  validateParams(usernameParamSchema),
 ], async (req, res) => {
   const { username } = req.params;
 
@@ -284,9 +301,7 @@ router.get('/user/:username', [
 // Verify email with OTP
 router.post('/verify-email', [
   authLimiter,
-  body('userId').notEmpty().withMessage('User ID is required'),
-  body('otp').trim().notEmpty().withMessage('OTP is required').isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits'),
-  validate
+  validateBody(verifyEmailSchema),
 ], async (req, res) => {
   try {
     const { userId, otp } = req.body;
@@ -356,8 +371,7 @@ router.post('/verify-email', [
 // Resend OTP
 router.post('/resend-otp', [
   authLimiter,
-  body('userId').notEmpty().withMessage('User ID is required'),
-  validate
+  validateBody(resendOtpSchema),
 ], async (req, res) => {
   try {
     const { userId } = req.body;

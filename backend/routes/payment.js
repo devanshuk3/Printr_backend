@@ -2,10 +2,10 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const auth = require('../middleware/auth');
-const { body } = require('express-validator');
-const { validate } = require('../middleware/validator');
 const { generalLimiter } = require('../middleware/rateLimiter');
 const handleError = require('../utils/errorHandler');
+const { validateBody } = require('../middleware/validator');
+const { calculatePaymentSchema } = require('../middleware/schemas');
 
 router.use(generalLimiter);
 
@@ -70,14 +70,7 @@ const parsePageRange = (rangeStr, maxPages) => {
  */
 router.post('/calculate', [
   auth,
-  body('vendorId').trim().notEmpty().withMessage('Vendor ID is required').escape(),
-  body('totalPages').isInt({ min: 0 }).withMessage('Total pages must be a non-negative integer'),
-  body('copies').isInt({ min: 1 }).withMessage('Copies must be at least 1'),
-  body('colorMode').isIn(['Colored', 'Black & White']).withMessage('Color mode must be "Colored" or "Black & White"'),
-  body('doubleSided').isIn(['YES', 'NO']).withMessage('Double sided must be "YES" or "NO"'),
-  body('pageSelection').isIn(['All', 'Custom']).withMessage('Page selection must be "All" or "Custom"'),
-  body('customRange').optional().isString(),
-  validate
+  validateBody(calculatePaymentSchema),
 ], async (req, res) => {
   const { vendorId, totalPages, copies, colorMode, doubleSided, pageSelection, customRange } = req.body;
 

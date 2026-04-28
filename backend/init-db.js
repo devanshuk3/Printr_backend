@@ -1,3 +1,4 @@
+require('dotenv').config();
 const db = require('./db');
 
 const initDb = async () => {
@@ -129,6 +130,11 @@ const initDb = async () => {
       'ALTER TABLE orders ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10, 2) DEFAULT 0.00',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false',
       'ALTER TABLE email_otps ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0',
+      // Account lockout columns (failed login protection)
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER DEFAULT 0',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ',
+      'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER DEFAULT 0',
+      'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ',
       'DROP TABLE IF EXISTS print_queue CASCADE'
     ];
 

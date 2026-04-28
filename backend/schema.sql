@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS users (
     password VARCHAR(255) NOT NULL,
     role VARCHAR(50) DEFAULT 'user',
     is_verified BOOLEAN DEFAULT false,
+    failed_login_attempts INTEGER DEFAULT 0,
+    locked_until TIMESTAMPTZ,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -30,6 +32,8 @@ CREATE TABLE IF NOT EXISTS vendors (
     auto_accept_jobs BOOLEAN DEFAULT TRUE,
     enable_upi BOOLEAN DEFAULT TRUE,
     min_amount DECIMAL(10, 2) DEFAULT 1.00,
+    failed_login_attempts INTEGER DEFAULT 0,
+    locked_until TIMESTAMPTZ,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
