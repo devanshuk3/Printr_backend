@@ -488,6 +488,8 @@ router.post('/register', [
   validateBody(vendorRegisterSchema),
 ], async (req, res) => {
   const data = req.body;
+
+  try {
     // Check if vendor already exists
     const checkExist = await db.query(
       'SELECT id FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
