@@ -488,7 +488,16 @@ router.post('/register', [
   validateBody(vendorRegisterSchema),
 ], async (req, res) => {
   const data = req.body;
-  try {
+    // Check if vendor already exists
+    const checkExist = await db.query(
+      'SELECT id FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
+      [data.vendor_id]
+    );
+
+    if (checkExist.rows.length > 0) {
+      return res.status(409).json({ success: false, message: "Vendor ID already registered" });
+    }
+
     const query = `
       INSERT INTO vendors (vendor_id, password, full_name, shop_name, phone, upi_id, address, bw_price, color_price, paper_sizes, has_bw_printer, has_color_printer)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
@@ -500,15 +509,21 @@ router.post('/register', [
 
     const values = [
       data.vendor_id, hashedPassword, data.full_name, data.shop_name,
-      data.phone, data.upi_id, data.address, data.bw_price,
-      data.color_price, data.paper_sizes, data.has_bw_printer || false, data.has_color_printer || false
+      data.phone, data.upi_id, data.address, data.bw_price || 0,
+      data.color_price || 0, data.paper_sizes, 
+      data.has_bw_printer ?? true, 
+      data.has_color_printer ?? false
     ];
 
     const result = await db.query(query, values);
     const vendor = result.rows[0];
 
     const jwt = require('jsonwebtoken');
-    const token = jwt.sign({ id: vendor.id, vendor_id: vendor.vendor_id, role: 'vendor' }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign(
+      { id: vendor.id, vendor_id: vendor.vendor_id, role: 'vendor' }, 
+      process.env.JWT_SECRET, 
+      { expiresIn: '7d' }
+    );
 
     res.status(201).json({
       success: true,
@@ -517,6 +532,7 @@ router.post('/register', [
       message: "Account initialized successfully"
     });
   } catch (err) {
+    console.error("[VendorRegister] Error:", err);
     handleError(res, err, "Vendor registration failed");
   }
 });
