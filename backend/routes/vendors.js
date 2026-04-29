@@ -500,69 +500,70 @@ router.post('/register', [
       return res.status(409).json({ success: false, message: "Vendor ID already registered" });
     }
 
-    // Some existing production DBs still have a NOT NULL `vendors.name` column.
-    // Populate it with `shop_name` if the column exists.
-    const hasNameColumnRes = await db.query(
-      "SELECT 1 FROM information_schema.columns WHERE table_name = 'vendors' AND column_name = 'name' LIMIT 1"
-    );
-    const hasNameColumn = hasNameColumnRes.rows.length > 0;
-
     // Hash password first
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(data.password, salt);
 
-    let query;
-    let values;
-    if (hasNameColumn) {
-      query = `
-        INSERT INTO vendors (
-          vendor_id, password, full_name, shop_name, name, phone, upi_id, address,
-          bw_price, color_price, paper_sizes, has_bw_printer, has_color_printer
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-        RETURNING *`;
+    const queryWithName = `
+      INSERT INTO vendors (
+        vendor_id, password, full_name, shop_name, name, phone, upi_id, address,
+        bw_price, color_price, paper_sizes, has_bw_printer, has_color_printer
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      RETURNING *`;
 
-      values = [
-        data.vendor_id,
-        hashedPassword,
-        data.full_name,
-        data.shop_name,
-        data.shop_name, // `name` legacy column
-        data.phone,
-        data.upi_id,
-        data.address,
-        data.bw_price || 0,
-        data.color_price || 0,
-        data.paper_sizes,
-        data.has_bw_printer ?? true,
-        data.has_color_printer ?? false,
-      ];
-    } else {
-      query = `
-        INSERT INTO vendors (
-          vendor_id, password, full_name, shop_name, phone, upi_id, address,
-          bw_price, color_price, paper_sizes, has_bw_printer, has_color_printer
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        RETURNING *`;
+    const valuesWithName = [
+      data.vendor_id,
+      hashedPassword,
+      data.full_name,
+      data.shop_name,
+      data.shop_name, // legacy `vendors.name` column
+      data.phone,
+      data.upi_id,
+      data.address,
+      data.bw_price || 0,
+      data.color_price || 0,
+      data.paper_sizes,
+      data.has_bw_printer ?? true,
+      data.has_color_printer ?? false,
+    ];
 
-      values = [
-        data.vendor_id,
-        hashedPassword,
-        data.full_name,
-        data.shop_name,
-        data.phone,
-        data.upi_id,
-        data.address,
-        data.bw_price || 0,
-        data.color_price || 0,
-        data.paper_sizes,
-        data.has_bw_printer ?? true,
-        data.has_color_printer ?? false,
-      ];
+    const queryWithoutName = `
+      INSERT INTO vendors (
+        vendor_id, password, full_name, shop_name, phone, upi_id, address,
+        bw_price, color_price, paper_sizes, has_bw_printer, has_color_printer
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING *`;
+
+    const valuesWithoutName = [
+      data.vendor_id,
+      hashedPassword,
+      data.full_name,
+      data.shop_name,
+      data.phone,
+      data.upi_id,
+      data.address,
+      data.bw_price || 0,
+      data.color_price || 0,
+      data.paper_sizes,
+      data.has_bw_printer ?? true,
+      data.has_color_printer ?? false,
+    ];
+
+    let result;
+    try {
+      // Prefer the "newer" insert that also populates the legacy NOT NULL column.
+      result = await db.query(queryWithName, valuesWithName);
+    } catch (insertErr) {
+      // If the DB doesn't have the legacy column, fallback to the standard insert.
+      if (insertErr?.code === '42703') {
+        result = await db.query(queryWithoutName, valuesWithoutName);
+      } else {
+        throw insertErr;
+      }
     }
 
-    const result = await db.query(query, values);
     const vendor = result.rows[0];
 
     const jwt = require('jsonwebtoken');
