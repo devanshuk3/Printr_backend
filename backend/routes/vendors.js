@@ -535,7 +535,13 @@ router.post('/register', [
     });
   } catch (err) {
     console.error("[VendorRegister] Error:", err);
-    handleError(res, err, "Vendor registration failed");
+    // Return a little more diagnostics so the frontend can show the real cause.
+    // (Safe because this is only used to debug vendor registration failures.)
+    res.status(500).json({
+      message: "Vendor registration failed",
+      code: err?.code,
+      detail: err?.message,
+    });
   }
 });
 
