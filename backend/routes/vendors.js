@@ -500,22 +500,67 @@ router.post('/register', [
       return res.status(409).json({ success: false, message: "Vendor ID already registered" });
     }
 
-    const query = `
-      INSERT INTO vendors (vendor_id, password, full_name, shop_name, phone, upi_id, address, bw_price, color_price, paper_sizes, has_bw_printer, has_color_printer)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-      RETURNING *`;
+    // Some existing production DBs still have a NOT NULL `vendors.name` column.
+    // Populate it with `shop_name` if the column exists.
+    const hasNameColumnRes = await db.query(
+      "SELECT 1 FROM information_schema.columns WHERE table_name = 'vendors' AND column_name = 'name' LIMIT 1"
+    );
+    const hasNameColumn = hasNameColumnRes.rows.length > 0;
 
     // Hash password first
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(data.password, salt);
 
-    const values = [
-      data.vendor_id, hashedPassword, data.full_name, data.shop_name,
-      data.phone, data.upi_id, data.address, data.bw_price || 0,
-      data.color_price || 0, data.paper_sizes, 
-      data.has_bw_printer ?? true, 
-      data.has_color_printer ?? false
-    ];
+    let query;
+    let values;
+    if (hasNameColumn) {
+      query = `
+        INSERT INTO vendors (
+          vendor_id, password, full_name, shop_name, name, phone, upi_id, address,
+          bw_price, color_price, paper_sizes, has_bw_printer, has_color_printer
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        RETURNING *`;
+
+      values = [
+        data.vendor_id,
+        hashedPassword,
+        data.full_name,
+        data.shop_name,
+        data.shop_name, // `name` legacy column
+        data.phone,
+        data.upi_id,
+        data.address,
+        data.bw_price || 0,
+        data.color_price || 0,
+        data.paper_sizes,
+        data.has_bw_printer ?? true,
+        data.has_color_printer ?? false,
+      ];
+    } else {
+      query = `
+        INSERT INTO vendors (
+          vendor_id, password, full_name, shop_name, phone, upi_id, address,
+          bw_price, color_price, paper_sizes, has_bw_printer, has_color_printer
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        RETURNING *`;
+
+      values = [
+        data.vendor_id,
+        hashedPassword,
+        data.full_name,
+        data.shop_name,
+        data.phone,
+        data.upi_id,
+        data.address,
+        data.bw_price || 0,
+        data.color_price || 0,
+        data.paper_sizes,
+        data.has_bw_printer ?? true,
+        data.has_color_printer ?? false,
+      ];
+    }
 
     const result = await db.query(query, values);
     const vendor = result.rows[0];
