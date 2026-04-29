@@ -500,70 +500,57 @@ router.post('/register', [
       return res.status(409).json({ success: false, message: "Vendor ID already registered" });
     }
 
-    // Hash password first
+    // Hash password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(data.password, salt);
 
-    const queryWithName = `
-      INSERT INTO vendors (
-        vendor_id, password, full_name, shop_name, name, phone, upi_id, address,
-        bw_price, color_price, paper_sizes, has_bw_printer, has_color_printer
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-      RETURNING *`;
-
-    const valuesWithName = [
-      data.vendor_id,
-      hashedPassword,
-      data.full_name,
-      data.shop_name,
-      data.shop_name, // legacy `vendors.name` column
-      data.phone,
-      data.upi_id,
-      data.address,
-      data.bw_price || 0,
-      data.color_price || 0,
-      data.paper_sizes,
-      data.has_bw_printer ?? true,
-      data.has_color_printer ?? false,
-    ];
-
-    const queryWithoutName = `
-      INSERT INTO vendors (
-        vendor_id, password, full_name, shop_name, phone, upi_id, address,
-        bw_price, color_price, paper_sizes, has_bw_printer, has_color_printer
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-      RETURNING *`;
-
-    const valuesWithoutName = [
-      data.vendor_id,
-      hashedPassword,
-      data.full_name,
-      data.shop_name,
-      data.phone,
-      data.upi_id,
-      data.address,
-      data.bw_price || 0,
-      data.color_price || 0,
-      data.paper_sizes,
-      data.has_bw_printer ?? true,
-      data.has_color_printer ?? false,
-    ];
-
-    let result;
+    // ── Dynamically discover which columns exist in the vendors table ──
+    // This prevents INSERT failures caused by schema drift between environments.
+    let existingColumns = [];
     try {
-      // Prefer the "newer" insert that also populates the legacy NOT NULL column.
-      result = await db.query(queryWithName, valuesWithName);
-    } catch (insertErr) {
-      // If the DB doesn't have the legacy column, fallback to the standard insert.
-      if (insertErr?.code === '42703') {
-        result = await db.query(queryWithoutName, valuesWithoutName);
-      } else {
-        throw insertErr;
-      }
+      const colRes = await db.query(
+        `SELECT column_name FROM information_schema.columns 
+         WHERE table_name = 'vendors' AND table_schema = 'public'`
+      );
+      existingColumns = colRes.rows.map(r => r.column_name);
+    } catch (schemaErr) {
+      console.warn("[VendorRegister] Could not query information_schema, using full column set:", schemaErr.message);
     }
 
+    // Define all potential columns and their values
+    const allFields = [
+      { col: 'vendor_id',         val: data.vendor_id },
+      { col: 'password',          val: hashedPassword },
+      { col: 'full_name',         val: data.full_name },
+      { col: 'shop_name',         val: data.shop_name },
+      { col: 'name',              val: data.shop_name },  // legacy column
+      { col: 'phone',             val: data.phone || null },
+      { col: 'upi_id',            val: data.upi_id || null },
+      { col: 'address',           val: data.address || null },
+      { col: 'bw_price',          val: data.bw_price || 0 },
+      { col: 'color_price',       val: data.color_price || 0 },
+      { col: 'paper_sizes',       val: data.paper_sizes || null },
+      { col: 'has_bw_printer',    val: data.has_bw_printer ?? true },
+      { col: 'has_color_printer', val: data.has_color_printer ?? false },
+    ];
+
+    // Filter to only columns that actually exist in the DB (or use all if schema query failed)
+    const fieldsToInsert = existingColumns.length > 0
+      ? allFields.filter(f => existingColumns.includes(f.col))
+      : allFields.filter(f => f.col !== 'name'); // safe default: exclude legacy `name`
+
+    const columns = fieldsToInsert.map(f => f.col);
+    const values  = fieldsToInsert.map(f => f.val);
+    const placeholders = values.map((_, i) => `$${i + 1}`);
+
+    const insertQuery = `
+      INSERT INTO vendors (${columns.join(', ')})
+      VALUES (${placeholders.join(', ')})
+      RETURNING *`;
+
+    console.log(`[VendorRegister] Inserting with columns: [${columns.join(', ')}]`);
+
+    const result = await db.query(insertQuery, values);
     const vendor = result.rows[0];
 
     const jwt = require('jsonwebtoken');
@@ -581,12 +568,22 @@ router.post('/register', [
     });
   } catch (err) {
     console.error("[VendorRegister] Error:", err);
-    // Return a little more diagnostics so the frontend can show the real cause.
-    // (Safe because this is only used to debug vendor registration failures.)
+    
+    // Provide a user-friendly message while logging full details server-side
+    const userMessage = err?.code === '23505' 
+      ? "This Vendor ID is already taken. Please choose a different one."
+      : err?.code === '23502'
+        ? `A required field is missing: ${err?.column || 'unknown'}. Please fill all required fields.`
+        : "Vendor registration failed. Please try again or contact support.";
+
     res.status(500).json({
-      message: "Vendor registration failed (diagnostics)",
-      code: err?.code,
-      detail: err?.message,
+      success: false,
+      message: userMessage,
+      // Include diagnostics only in non-production for debugging
+      ...(process.env.NODE_ENV !== 'production' && { 
+        code: err?.code, 
+        detail: err?.message 
+      }),
     });
   }
 });
