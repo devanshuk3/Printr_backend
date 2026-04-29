@@ -538,7 +538,7 @@ router.post('/register', [
     // Return a little more diagnostics so the frontend can show the real cause.
     // (Safe because this is only used to debug vendor registration failures.)
     res.status(500).json({
-      message: "Vendor registration failed",
+      message: "Vendor registration failed (diagnostics)",
       code: err?.code,
       detail: err?.message,
     });
