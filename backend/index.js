@@ -1,14 +1,13 @@
-// ========== ENVIRONMENT SETUP (must be first!) ==========
-// In production (Render), system env vars are already set.
-// In development, load from .env file before any module reads process.env.
+//environment setup
+//in production (Render), system env vars are already set.
+//in development, load from .env file before any module reads process.env.
 if (process.env.NODE_ENV !== 'production') {
   require('dotenv').config();
   console.log('[Init] Development mode: Loaded local .env file.');
 } else {
   console.log('[Init] Production mode: Using system environment variables.');
 }
-
-// Environment Validation — fail fast if critical vars are missing
+//environment validation — fail fast if critical vars are missing
 const requiredEnv = [
   'SUPABASE_URL',
   'JWT_SECRET',
@@ -17,6 +16,7 @@ const requiredEnv = [
   'R2_ENDPOINT',
   'R2_BUCKET_NAME'
 ];
+//set of required variables from env
 
 const missing = requiredEnv.filter(k => !process.env[k]);
 if (missing.length > 0) {
@@ -24,8 +24,10 @@ if (missing.length > 0) {
   console.error('Please ensure these are set in your Render dashboard or .env file.');
   if (process.env.NODE_ENV === 'production') process.exit(1);
 }
+//exit with a warnign if the env varibales are missing
 
-// ========== MODULE IMPORTS (safe to use process.env now) ==========
+
+//module imports
 const express = require('express');
 const cors = require('cors');
 const https = require('https');
@@ -40,16 +42,8 @@ const { globalLimiter, healthLimiter, destructiveLimiter } = require('./middlewa
 
 const app = express();
 
-// ========== DATABASE & STARTUP ==========
-
-
-
-// ========== CORS POLICY ==========
-// Allowed origins:
-// - React Native mobile app: does NOT send an Origin header (native HTTP, not a browser) → origin is undefined
-// - Electron production build: loads from file:// with webSecurity:false → origin is "null" or undefined
-// - Electron dev server: Vite on localhost:3000 → origin is "http://localhost:3000"
-// - Backend dev testing: localhost:5000
+//DATABASE & STARTUP
+//CORS POLICY
 const allowedOrigins = [
   'https://printr-backend.onrender.com',
   'http://localhost:3000',
@@ -59,17 +53,13 @@ const allowedOrigins = [
 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no Origin header (Electron production, mobile apps, etc.)
     if (!origin || origin === 'null') {
       return callback(null, true);
     }
-    
-    // In development, allow any localhost/127.0.0.1 origin
     const isLocalhost = origin.includes('localhost') || origin.includes('127.0.0.1');
     if (isLocalhost || allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
-    
     return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
@@ -78,31 +68,29 @@ const corsOptions = {
 // Middlewares
 app.use(helmet());
 app.use(cors(corsOptions));
-app.use(express.json({ limit: '100kb' }));         // DoS protection: reject oversized JSON payloads
-app.use(express.urlencoded({ limit: '100kb', extended: true })); // Also limit URL-encoded bodies
+app.use(express.json({ limit: '100kb' }));    //rejects json oversized payloads
+app.use(express.urlencoded({ limit: '100kb', extended: true })); //limit url-encoded bodies
 
-// Global rate limiter — baseline protection for every endpoint
+// Global rate limiter
 app.use(globalLimiter);
 
-// Routes
+//Routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/vendors', require('./routes/vendors'));
 app.use('/api/payment', require('./routes/payment'));
 
-// Health check endpoint
+//Health check endpoint
 app.get('/api/health', healthLimiter, (req, res) => {
   res.status(200).json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
-// SYSTEM MAINTENANCE: Endpoint to manually trigger cleanup (PROTECTED - Admin only)
+//to manually trigger cleanup (protected Admin only)
 app.get('/api/system/cleanup', destructiveLimiter, auth, roleAuth(['admin']), async (req, res) => {
-  console.log('[Manual Maintenance] Cleanup triggered via system endpoint.');
+  console.log('[Manual Maintenance] Cleanup triggered via endpoint.');
   try {
-    // 1. Run storage cleanup
+    //Run storage cleanup
     await cleanupOldFiles();
-
-    // 2. Also run the deeper DB history purge logic (imported from cleanup.js)
-    // For simplicity, we just trigger the main automated task's logic
+    //DB history purge logic 
     if (cleanupDatabaseHistory) await cleanupDatabaseHistory();
     if (cleanupCompletedJobs) await cleanupCompletedJobs();
 
@@ -133,12 +121,11 @@ console.log("ENV PORT:", process.env.PORT);
 app.listen(PORT, async () => {
   console.log(`Server started on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
 
-  // 2. Start scheduled tasks
   startCleanupTask();
 
-  // 3. Keep-alive mechanism to prevent Render from spinning down
+  //cron job to prevent Render from going to sleep
   const KEEP_ALIVE_URL = process.env.KEEP_ALIVE_URL;
-  const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER;
+  const isProduction = process.env.NODE_ENV === 'production' ||process.env.RENDER;
 
   if (KEEP_ALIVE_URL && isProduction) {
     console.log(`[Keep-Alive] Initializing health pinger to ${KEEP_ALIVE_URL}...`);
