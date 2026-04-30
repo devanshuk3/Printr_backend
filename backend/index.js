@@ -42,13 +42,11 @@ const { globalLimiter, healthLimiter, destructiveLimiter } = require('./middlewa
 
 const app = express();
 
-//DATABASE & STARTUP
-//CORS POLICY
+//cors policy
 const allowedOrigins = [
   'https://printr-backend.onrender.com',
   'http://localhost:3000',
-  'http://127.0.0.1:3000',
-  'null'
+  'http://127.0.0.1:3000'
 ];
 
 const corsOptions = {
@@ -68,7 +66,7 @@ const corsOptions = {
 // Middlewares
 app.use(helmet());
 app.use(cors(corsOptions));
-app.use(express.json({ limit: '100kb' }));    //rejects json oversized payloads
+app.use(express.json({ limit: '100kb' }));//rejects json oversized payloads
 app.use(express.urlencoded({ limit: '100kb', extended: true })); //limit url-encoded bodies
 
 // Global rate limiter
@@ -85,12 +83,11 @@ app.get('/api/health', healthLimiter, (req, res) => {
 });
 
 //to manually trigger cleanup (protected Admin only)
-app.get('/api/system/cleanup', destructiveLimiter, auth, roleAuth(['admin']), async (req, res) => {
+app.post('/api/system/cleanup', destructiveLimiter, auth, roleAuth(['admin']), async (req, res) => {
   console.log('[Manual Maintenance] Cleanup triggered via endpoint.');
   try {
-    //Run storage cleanup
+    //Run storage cleanup and db cleanup logic
     await cleanupOldFiles();
-    //DB history purge logic 
     if (cleanupDatabaseHistory) await cleanupDatabaseHistory();
     if (cleanupCompletedJobs) await cleanupCompletedJobs();
 
@@ -101,7 +98,7 @@ app.get('/api/system/cleanup', destructiveLimiter, auth, roleAuth(['admin']), as
   }
 });
 
-// Error handling middleware
+//error handling middleware
 app.use((err, req, res, next) => {
   console.error('[Error Stack]', err.stack);
   res.status(err.status || 500).json({
@@ -117,7 +114,7 @@ if (!PORT) {
   throw new Error("PORT is not defined. This should never happen in production.");
 }
 console.log("ENV PORT:", process.env.PORT);
-// Only start the server if this file is run directly, not when required as a module
+//start the server if this file is run directly
 app.listen(PORT, async () => {
   console.log(`Server started on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
 
@@ -147,7 +144,6 @@ app.listen(PORT, async () => {
       });
     };
 
-    // Initial and periodic pings
     ping();
     setInterval(ping, 5 * 60 * 1000);
   } else {

@@ -25,7 +25,7 @@ const MAX_OTP_ATTEMPTS = 5;
 
 
 
-// Register
+//register
 router.post('/register', [
   authLimiter,
   validateBody(registerSchema),
