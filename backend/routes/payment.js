@@ -77,7 +77,7 @@ router.post('/calculate', [
   try {
     // 1. Fetch vendor pricing from the database (authoritative source)
     const vendorRes = await db.query(
-      'SELECT bw_price, color_price, has_bw_printer, has_color_printer FROM vendors WHERE LOWER(TRIM(vendor_id)) = LOWER(TRIM($1))',
+      'SELECT bw_price, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, has_bw_printer, has_color_printer FROM vendors WHERE LOWER(TRIM(vendor_id)) = LOWER(TRIM($1))',
       [vendorId]
     );
 
@@ -95,15 +95,26 @@ router.post('/calculate', [
       return res.status(400).json({ message: "This vendor does not support black & white printing." });
     }
 
-    // 3. Determine the price per page from the vendor's settings
-    const pricePerPage = colorMode === 'Colored'
-      ? parseFloat(vendor.color_price) || 0
-      : parseFloat(vendor.bw_price) || 0;
-
-    // 4. Determine effective pages (handle custom range)
+    // 3. Determine effective pages (handle custom range)
     let effectivePages = totalPages;
     if (pageSelection === 'Custom' && customRange) {
       effectivePages = parsePageRange(customRange, totalPages);
+    }
+
+    // 4. Determine the price per page from the vendor's settings based on effectivePages
+    let pricePerPage = 0;
+    if (colorMode === 'Colored') {
+      if (effectivePages === 1 && parseFloat(vendor.color_price_single) > 0) pricePerPage = parseFloat(vendor.color_price_single);
+      else if (effectivePages >= 2 && effectivePages <= 5 && parseFloat(vendor.color_price_2_to_5) > 0) pricePerPage = parseFloat(vendor.color_price_2_to_5);
+      else if (effectivePages >= 6 && effectivePages <= 9 && parseFloat(vendor.color_price_6_to_9) > 0) pricePerPage = parseFloat(vendor.color_price_6_to_9);
+      else if (effectivePages >= 10 && parseFloat(vendor.color_price_10_plus) > 0) pricePerPage = parseFloat(vendor.color_price_10_plus);
+      else pricePerPage = parseFloat(vendor.color_price) || 0;
+    } else {
+      if (effectivePages === 1 && parseFloat(vendor.bw_price_single) > 0) pricePerPage = parseFloat(vendor.bw_price_single);
+      else if (effectivePages >= 2 && effectivePages <= 5 && parseFloat(vendor.bw_price_2_to_5) > 0) pricePerPage = parseFloat(vendor.bw_price_2_to_5);
+      else if (effectivePages >= 6 && effectivePages <= 9 && parseFloat(vendor.bw_price_6_to_9) > 0) pricePerPage = parseFloat(vendor.bw_price_6_to_9);
+      else if (effectivePages >= 10 && parseFloat(vendor.bw_price_10_plus) > 0) pricePerPage = parseFloat(vendor.bw_price_10_plus);
+      else pricePerPage = parseFloat(vendor.bw_price) || 0;
     }
 
     // 5. Calculate sheets per copy (double-sided halves the sheet count)
