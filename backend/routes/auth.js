@@ -67,12 +67,9 @@ router.post('/register', [
     );
 
     // Send OTP email (fire-and-forget with error logging)
-    try {
-      await sendOTPEmail(email, otp);
-    } catch (mailErr) {
-      console.error('[Register] Failed to send OTP email:', mailErr.message);
-      // Don't fail registration — user can resend OTP
-    }
+    sendOTPEmail(email, otp).catch(err => {
+      console.error('[Register] Failed to send OTP email:', err.message);
+    });
 
     res.json({
       success: true,
@@ -99,9 +96,10 @@ router.post('/login', [
       return res.status(423).json({ message: lockoutStatus.message });
     }
 
+    const normalizedIdentifier = identifier.toLowerCase();
     const userRes = await db.query(
-      'SELECT * FROM users WHERE LOWER(email) = LOWER($1) OR LOWER(username) = LOWER($1)',
-      [identifier]
+      'SELECT id, full_name, email, username, password, is_verified, role FROM users WHERE LOWER(email) = $1 OR LOWER(username) = $1',
+      [normalizedIdentifier]
     );
     
     // Generic "Invalid credentials" to prevent enumeration
@@ -211,13 +209,13 @@ router.post('/google', [
     const payload = ticket.getPayload();
     const { email, name } = payload;
 
-    let userRes = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+    let userRes = await db.query('SELECT id, full_name, email, username, role FROM users WHERE email = $1', [email]);
     let user;
 
     if (userRes.rows.length === 0) {
       // Create new user
       let username = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '');
-      const checkUsername = await db.query('SELECT * FROM users WHERE username = $1', [username]);
+      const checkUsername = await db.query('SELECT id FROM users WHERE username = $1 LIMIT 1', [username]);
       if (checkUsername.rows.length > 0) {
         username = `${username}_${crypto.randomBytes(2).toString('hex')}`;
       }
@@ -262,7 +260,8 @@ router.put('/username', [
   const { username } = req.body;
 
   try {
-    const checkRes = await db.query('SELECT id FROM users WHERE LOWER(username) = LOWER($1)', [username]);
+    const normalizedUsername = username.toLowerCase();
+    const checkRes = await db.query('SELECT id FROM users WHERE LOWER(username) = $1 LIMIT 1', [normalizedUsername]);
     if (checkRes.rows.length > 0 && checkRes.rows[0].id !== req.user.id) {
       return res.status(400).json({ message: "Username already taken" });
     }
@@ -336,8 +335,10 @@ router.post('/verify-email', [
     }
 
     // Mark OTP as used and verify user
-    await db.query('UPDATE email_otps SET used = true WHERE id = $1', [record.id]);
-    await db.query('UPDATE users SET is_verified = true WHERE id = $1', [userId]);
+    await Promise.all([
+      db.query('UPDATE email_otps SET used = true WHERE id = $1', [record.id]),
+      db.query('UPDATE users SET is_verified = true WHERE id = $1', [userId])
+    ]);
 
     // Fetch user and issue JWT so they're logged in immediately after verification
     const userRes = await db.query(
@@ -411,7 +412,9 @@ router.post('/resend-otp', [
       [userId, otpHash, expiresAt]
     );
 
-    await sendOTPEmail(userRes.rows[0].email, otp);
+    sendOTPEmail(userRes.rows[0].email, otp).catch(err => {
+      console.error('[Resend OTP] Failed to send OTP email:', err.message);
+    });
 
     res.json({ success: true, message: 'Verification code resent' });
   } catch (err) {

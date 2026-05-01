@@ -135,7 +135,11 @@ const initDb = async () => {
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ',
       'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER DEFAULT 0',
       'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ',
-      'DROP TABLE IF EXISTS print_queue CASCADE'
+      'DROP TABLE IF EXISTS print_queue CASCADE',
+      'CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email))',
+      'CREATE INDEX IF NOT EXISTS idx_users_username_lower ON users (LOWER(username))',
+      'CREATE INDEX IF NOT EXISTS idx_email_otps_user_id ON email_otps(user_id)',
+      'CREATE INDEX IF NOT EXISTS idx_email_otps_created_at ON email_otps(created_at)'
     ];
 
     for (const sql of migrations) {
