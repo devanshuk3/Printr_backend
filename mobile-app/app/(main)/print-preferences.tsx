@@ -392,16 +392,30 @@ const PrintSettings = () => {
 
                     const { uploadUrl, filePath, orderId: returnedOrderId } = await urlResponse.json();
 
-                    const uploadRes = await FileSystem.uploadAsync(uploadUrl, mergedFilePath, {
-                         httpMethod: 'PUT',
-                         uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-                         headers: {
-                              'Content-Type': 'application/pdf'
+                    let uploadRes;
+                    let retries = 3;
+                    while (retries > 0) {
+                         try {
+                              uploadRes = await FileSystem.uploadAsync(uploadUrl, mergedFilePath, {
+                                   httpMethod: 'PUT',
+                                   uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+                                   headers: {
+                                        'Content-Type': 'application/pdf'
+                                   }
+                              });
+                              if (uploadRes.status >= 200 && uploadRes.status < 300) {
+                                   break;
+                              } else {
+                                   throw new Error(`Status ${uploadRes.status}`);
+                              }
+                         } catch (err) {
+                              retries--;
+                              if (retries === 0) {
+                                   throw new Error("Something went wrong while sending your files after multiple attempts. Please check your connection.");
+                              }
+                              // wait a bit before retrying
+                              await new Promise(resolve => setTimeout(resolve, 1000));
                          }
-                    });
-
-                    if (uploadRes.status < 200 || uploadRes.status >= 300) {
-                         throw new Error("Something went wrong while sending your files. Please check your connection.");
                     }
 
                     if (returnedOrderId) {
@@ -451,16 +465,28 @@ const PrintSettings = () => {
 
                     if (urlResponseJson.ok) {
                          const { uploadUrl: jsonUploadUrl } = await urlResponseJson.json();
-                         const jsonUploadRes = await FileSystem.uploadAsync(jsonUploadUrl, jsonFilePath, {
-                              httpMethod: 'PUT',
-                              uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-                              headers: {
-                                   'Content-Type': 'application/json'
+                         
+                         let jsonUploadRes;
+                         let jsonRetries = 3;
+                         while (jsonRetries > 0) {
+                              try {
+                                   jsonUploadRes = await FileSystem.uploadAsync(jsonUploadUrl, jsonFilePath, {
+                                        httpMethod: 'PUT',
+                                        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+                                        headers: { 'Content-Type': 'application/json' }
+                                   });
+                                   if (jsonUploadRes.status >= 200 && jsonUploadRes.status < 300) {
+                                        break;
+                                   } else {
+                                        throw new Error(`Status ${jsonUploadRes.status}`);
+                                   }
+                              } catch (err) {
+                                   jsonRetries--;
+                                   if (jsonRetries === 0) {
+                                        console.warn("JSON upload failed after retries.");
+                                   }
+                                   await new Promise(resolve => setTimeout(resolve, 1000));
                               }
-                         });
-
-                         if (jsonUploadRes.status < 200 || jsonUploadRes.status >= 300) {
-                              console.warn("JSON upload failed but continuing...", jsonUploadRes.status);
                          }
                     }
                } catch (jsonErr) {

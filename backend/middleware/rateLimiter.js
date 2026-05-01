@@ -29,7 +29,7 @@ const globalLimiter = rateLimit({
 // ─────────────────────────────────────────────────────────────────────────────
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,       // 15 minutes
-  max: 10,                         // 10 attempts per window
+  max: 20,                         // 10 attempts per window
   keyGenerator: ipKeyGenerator,
   message: { message: "Too many authentication attempts. Please try again in 15 minutes." },
   standardHeaders: true,
@@ -41,7 +41,7 @@ const authLimiter = rateLimit({
 // ─────────────────────────────────────────────────────────────────────────────
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,       // 15 minutes
-  max: 200,
+  max: 500,
   keyGenerator: userKeyGenerator,
   message: { message: "Too many requests, please try again later." },
   standardHeaders: true,
@@ -53,7 +53,7 @@ const generalLimiter = rateLimit({
 // ─────────────────────────────────────────────────────────────────────────────
 const uploadLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 50,
+  max: 150,
   keyGenerator: userKeyGenerator,
   message: { message: "Slow down! You've initiated too many uploads. Please wait 15 minutes." },
   standardHeaders: true,
@@ -65,7 +65,7 @@ const uploadLimiter = rateLimit({
 // ─────────────────────────────────────────────────────────────────────────────
 const queueLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,        // 1 minute
-  max: 40,
+  max: 60,
   keyGenerator: userKeyGenerator,
   message: { message: "Queue refresh limit exceeded. Please wait a minute." },
   standardHeaders: true,

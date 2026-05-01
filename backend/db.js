@@ -16,7 +16,7 @@ const poolConfig = {
     normalizePgConnectionString(process.env.SUPABASE_URL) ||
     `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`,
   ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false }, //default to SSL for Supabase, only disable if strictly 'false'
-  max: 30,//max pool size -- current pooled connections
+  max: 40,//max pool size -- current pooled connections
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
   keepAlive: true,

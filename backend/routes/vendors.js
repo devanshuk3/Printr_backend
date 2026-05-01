@@ -49,22 +49,23 @@ const logStatusChange = (orderId, fromStatus, toStatus) => {
 /**
  * @endpoint Initialize a batch of orders before payment/upload
  */
-router.post('/orders/batch', [auth, uploadLimiter, validateBody(orderBatchSchema)], async (req, res) => {
+router.post('/orders/batch', [auth, validateBody(orderBatchSchema)], async (req, res) => {
   const { vendorId, files } = req.body;
 
   try {
     const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
-    const orderIds = [];
     
-    for (const file of files) {
+    const insertPromises = files.map(async (file) => {
       const orderRes = await db.query(
         'INSERT INTO orders (user_id, vendor_id, status, page_count, total_amount, is_color) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
         [req.user.id, sanitizedVendorId, 'uploading', file.pageCount || 1, file.totalAmount || 0, file.isColor || false]
       );
       const id = orderRes.rows[0].id;
       logStatusChange(id, 'none', 'uploading');
-      orderIds.push(id);
-    }
+      return id;
+    });
+
+    const orderIds = await Promise.all(insertPromises);
     
     res.json({ orderIds });
   } catch (err) {
@@ -226,7 +227,6 @@ router.post('/files/clear-vendor', [
 // Generate a secure Pre-signed URL for UPLOAD (PROTECTED)
 router.post('/files/upload-url', [
   auth,
-  uploadLimiter,
   validateBody(uploadUrlSchema),
 ], async (req, res) => {
   const { vendorId, fileName, contentType, totalPages, totalAmount, isColor, pageCount, orderId: existingOrderId } = req.body;
@@ -312,7 +312,7 @@ router.post('/files/upload-url', [
 });
 
 // Confirm that an upload was completely successful
-router.post('/orders/:id/confirm-upload', [auth, uploadLimiter], async (req, res) => {
+router.post('/orders/:id/confirm-upload', [auth], async (req, res) => {
   const { id } = req.params;
   try {
     // 1. Get order details to check file

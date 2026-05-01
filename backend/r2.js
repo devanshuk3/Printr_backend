@@ -18,6 +18,7 @@ const r2 = new S3Client({
   forcePathStyle: true,
   followRegionRedirects: false, // Prevent hidden HeadBucket/region-resolution API calls
   requestChecksumCalculation: 'WHEN_REQUIRED',
+  maxAttempts: 3, // Handle retries for network spikes
   credentials: {
     accessKeyId: (process.env.R2_ACCESS_KEY_ID || '').trim(),
     secretAccessKey: (process.env.R2_SECRET_ACCESS_KEY || '').trim(),

@@ -66,11 +66,19 @@ const corsOptions = {
 // Middlewares
 app.use(helmet());
 app.use(cors(corsOptions));
-app.use(express.json({ limit: '100kb' }));//rejects json oversized payloads
-app.use(express.urlencoded({ limit: '100kb', extended: true })); //limit url-encoded bodies
 
-// Global rate limiter
-app.use(globalLimiter);
+// Log aborted requests to trace network issues or client timeouts
+app.use((req, res, next) => {
+  req.on('aborted', () => {
+    console.warn(`[Aborted] Request to ${req.method} ${req.originalUrl} was aborted by the client.`);
+  });
+  next();
+});
+app.use(express.json({ limit: '10mb' }));//rejects json oversized payloads
+app.use(express.urlencoded({ limit: '10mb', extended: true })); //limit url-encoded bodies
+
+// Global rate limiter removed to avoid blocking health, uploads, etc.
+// app.use(globalLimiter);
 
 //Routes
 app.use('/api/auth', require('./routes/auth'));
@@ -115,7 +123,7 @@ if (!PORT) {
 }
 console.log("ENV PORT:", process.env.PORT);
 //start the server if this file is run directly
-app.listen(PORT, async () => {
+const server = app.listen(PORT, async () => {
   console.log(`Server started on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
 
   startCleanupTask();
@@ -149,6 +157,12 @@ app.listen(PORT, async () => {
   } else {
     console.log('[Keep-Alive] Self-pinging disabled (Local dev or missing URL).');
   }
+});
+
+// Set a more aggressive timeout (30s) to handle slow clients or aborts gracefully
+server.setTimeout(30000, (socket) => {
+  console.warn('[Server] Connection timed out due to slow client or network issue.');
+  socket.destroy();
 });
 
 module.exports = app;
