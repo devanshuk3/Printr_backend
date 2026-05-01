@@ -81,7 +81,7 @@ router.get('/verify/:vendorId', [
 
   try {
     const result = await db.query(
-      'SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, phone, upi_id, pages_printed, platform_fee, has_bw_printer, has_color_printer FROM vendors WHERE LOWER(TRIM(vendor_id)) = LOWER(TRIM($1))',
+      'SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, phone, upi_id, pages_printed, platform_fee, has_bw_printer, has_color_printer FROM vendors WHERE LOWER(TRIM(vendor_id)) = LOWER(TRIM($1))',
       [vendorId]
     );
 
@@ -98,7 +98,7 @@ router.get('/verify/:vendorId', [
 // Get all vendors (Only accessible by ADMINS)
 router.get('/all', [auth, checkRole(['admin'])], async (req, res) => {
   try {
-    const result = await db.query('SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, phone, upi_id, pages_printed, platform_fee, has_bw_printer, has_color_printer FROM vendors ORDER BY shop_name ASC');
+    const result = await db.query('SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, phone, upi_id, pages_printed, platform_fee, has_bw_printer, has_color_printer FROM vendors ORDER BY shop_name ASC');
     res.json(result.rows);
   } catch (err) {
     handleError(res, err, "Fetching vendors failed");
@@ -537,6 +537,8 @@ router.post('/register', [
       { col: 'color_price_2_to_5',  val: data.color_price_2_to_5 || 0 },
       { col: 'color_price_6_to_9',  val: data.color_price_6_to_9 || 0 },
       { col: 'color_price_10_plus', val: data.color_price_10_plus || 0 },
+      { col: 'hard_binding_price',  val: data.hard_binding_price || 0 },
+      { col: 'spiral_binding_price',val: data.spiral_binding_price || 0 },
       { col: 'paper_sizes',       val: data.paper_sizes || null },
       { col: 'has_bw_printer',    val: data.has_bw_printer ?? true },
       { col: 'has_color_printer', val: data.has_color_printer ?? false },
@@ -856,6 +858,7 @@ router.put('/settings', [
     shop_name, bw_price, color_price, upi_id, 
     bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus,
     color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus,
+    hard_binding_price, spiral_binding_price,
     auto_accept_jobs, enable_upi, min_amount,
     has_bw_printer, has_color_printer, bw_printer, color_printer
   } = req.body;
@@ -911,6 +914,14 @@ router.put('/settings', [
     if (color_price_10_plus !== undefined) {
       updates.push(`color_price_10_plus = $${paramCounter++}`);
       values.push(color_price_10_plus);
+    }
+    if (hard_binding_price !== undefined) {
+      updates.push(`hard_binding_price = $${paramCounter++}`);
+      values.push(hard_binding_price);
+    }
+    if (spiral_binding_price !== undefined) {
+      updates.push(`spiral_binding_price = $${paramCounter++}`);
+      values.push(spiral_binding_price);
     }
     if (upi_id !== undefined) {
       updates.push(`upi_id = $${paramCounter++}`);
@@ -977,7 +988,7 @@ router.get('/settings/me', auth, async (req, res) => {
   const vendorIdFromAuth = req.user.vendor_id;
   try {
     const result = await db.query(
-      'SELECT shop_name, bw_price, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, upi_id, auto_accept_jobs, enable_upi, min_amount, has_bw_printer, has_color_printer, bw_printer, color_printer FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
+      'SELECT shop_name, bw_price, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, upi_id, auto_accept_jobs, enable_upi, min_amount, has_bw_printer, has_color_printer, bw_printer, color_printer FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
       [vendorIdFromAuth]
     );
 

@@ -72,12 +72,12 @@ router.post('/calculate', [
   auth,
   validateBody(calculatePaymentSchema),
 ], async (req, res) => {
-  const { vendorId, totalPages, copies, colorMode, doubleSided, pageSelection, customRange } = req.body;
+  const { vendorId, totalPages, copies, colorMode, doubleSided, pageSelection, customRange, binding } = req.body;
 
   try {
     // 1. Fetch vendor pricing from the database (authoritative source)
     const vendorRes = await db.query(
-      'SELECT bw_price, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, has_bw_printer, has_color_printer FROM vendors WHERE LOWER(TRIM(vendor_id)) = LOWER(TRIM($1))',
+      'SELECT bw_price, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, has_bw_printer, has_color_printer FROM vendors WHERE LOWER(TRIM(vendor_id)) = LOWER(TRIM($1))',
       [vendorId]
     );
 
@@ -122,8 +122,15 @@ router.post('/calculate', [
       ? Math.ceil(effectivePages / 2)
       : effectivePages;
 
+    let bindingCost = 0;
+    if (binding === 'Spiral Binding') {
+      bindingCost = parseFloat(vendor.spiral_binding_price) || 0;
+    } else if (binding === 'Hard Binding') {
+      bindingCost = parseFloat(vendor.hard_binding_price) || 0;
+    }
+
     // 6. Calculate base printing cost (this is what the user pays)
-    const printingCost = sheetsPerCopy * copies * pricePerPage;
+    const printingCost = (sheetsPerCopy * pricePerPage + bindingCost) * copies;
 
     // 7. Platform fee is calculated on the vendor's revenue (not charged to user)
     const platformFee = printingCost * PLATFORM_FEE_PERCENT;

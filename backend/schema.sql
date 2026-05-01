@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS vendors (
     color_price_2_to_5 DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
     color_price_6_to_9 DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
     color_price_10_plus DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    hard_binding_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    spiral_binding_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
     has_bw_printer BOOLEAN DEFAULT TRUE,
     has_color_printer BOOLEAN DEFAULT FALSE,
     phone VARCHAR(20),

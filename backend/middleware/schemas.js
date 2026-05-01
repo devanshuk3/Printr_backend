@@ -89,6 +89,8 @@ const vendorRegisterSchema = z.object({
   color_price_2_to_5: nonNegativeFloat.optional(),
   color_price_6_to_9: nonNegativeFloat.optional(),
   color_price_10_plus: nonNegativeFloat.optional(),
+  hard_binding_price: nonNegativeFloat.optional(),
+  spiral_binding_price: nonNegativeFloat.optional(),
   paper_sizes: z.string().trim().max(255).optional().nullable(),
   has_bw_printer: z.boolean().optional(),
   has_color_printer: z.boolean().optional(),
@@ -106,6 +108,8 @@ const vendorSettingsSchema = z.object({
   color_price_2_to_5: nonNegativeFloat.optional(),
   color_price_6_to_9: nonNegativeFloat.optional(),
   color_price_10_plus: nonNegativeFloat.optional(),
+  hard_binding_price: nonNegativeFloat.optional(),
+  spiral_binding_price: nonNegativeFloat.optional(),
   upi_id: z.string().trim().max(255).optional(),
   auto_accept_jobs: z.boolean().optional(),
   enable_upi: z.boolean().optional(),
@@ -206,6 +210,7 @@ const calculatePaymentSchema = z.object({
   doubleSided: z.enum(['YES', 'NO'], { errorMap: () => ({ message: 'Double sided must be "YES" or "NO"' }) }),
   pageSelection: z.enum(['All', 'Custom'], { errorMap: () => ({ message: 'Page selection must be "All" or "Custom"' }) }),
   customRange: pageRangeField,
+  binding: z.enum(['None', 'Spiral Binding', 'Hard Binding'], { errorMap: () => ({ message: 'Binding must be None, Spiral Binding, or Hard Binding' }) }).optional().default('None'),
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

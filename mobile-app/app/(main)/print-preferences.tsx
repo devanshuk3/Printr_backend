@@ -209,7 +209,8 @@ const PrintSettings = () => {
           customScale: '',
           pageSelection: 'All',
           customRange: '',
-          doubleSided: 'NO'
+          doubleSided: 'NO',
+          binding: 'None'
      });
      const [showPaymentModal, setShowPaymentModal] = useState(false);
      const [isCopied, setIsCopied] = useState(false);
@@ -297,7 +298,8 @@ const PrintSettings = () => {
                               colorMode: formData.colorMode,
                               doubleSided: formData.doubleSided,
                               pageSelection: formData.pageSelection,
-                              customRange: formData.customRange
+                              customRange: formData.customRange,
+                              binding: formData.binding
                          })
                     });
 
@@ -324,7 +326,7 @@ const PrintSettings = () => {
                setTotalCost(0);
                setPendingAmount('0.00');
           }
-     }, [totalPages, copies, formData.colorMode, formData.doubleSided, formData.pageSelection, formData.customRange, fullDocPages]);
+     }, [totalPages, copies, formData.colorMode, formData.doubleSided, formData.pageSelection, formData.customRange, formData.binding, fullDocPages]);
 
      const handleChange = (field: string, value: string) => {
           setFormData(prev => ({ ...prev, [field]: value }));
@@ -443,6 +445,7 @@ const PrintSettings = () => {
                          pageSelection: formData.pageSelection,
                          customRange: formData.customRange,
                          doubleSided: formData.doubleSided,
+                         binding: formData.binding,
                     };
 
                     const jsonFileName = `job_preferences_${username}_${orderId}.json`;
@@ -661,7 +664,8 @@ const PrintSettings = () => {
                          colorMode: formData.colorMode,
                          doubleSided: formData.doubleSided,
                          pageSelection: formData.pageSelection,
-                         customRange: formData.customRange
+                         customRange: formData.customRange,
+                         binding: formData.binding
                     })
                });
 
@@ -819,6 +823,8 @@ const PrintSettings = () => {
                     </View>
 
                     {renderDropdown('Layout', 'layout', ['Portrait', 'Landscape'])}
+
+                    {renderDropdown('Binding', 'binding', ['None', 'Spiral Binding', 'Hard Binding'])}
 
                     <View style={styles.section}>
                          <Text style={styles.label}>Scaling</Text>
