@@ -56,18 +56,20 @@ router.post('/orders/batch', [auth, validateBody(orderBatchSchema)], async (req,
 
   try {
     const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
-    
-    const insertPromises = files.map(async (file) => {
-      const orderRes = await db.query(
-        'INSERT INTO orders (user_id, vendor_id, status, page_count, total_amount, is_color) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-        [req.user.id, sanitizedVendorId, 'uploading', file.pageCount || 1, file.totalAmount || 0, file.isColor || false]
-      );
-      const id = orderRes.rows[0].id;
-      logStatusChange(id, 'none', 'uploading');
-      return id;
-    });
 
-    const orderIds = await Promise.all(insertPromises);
+    const orderIds = await db.withTransaction(async (client) => {
+      const ids = [];
+      for (const file of files) {
+        const orderRes = await client.query(
+          'INSERT INTO orders (user_id, vendor_id, status, page_count, total_amount, is_color) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+          [req.user.id, sanitizedVendorId, 'uploading', file.pageCount || 1, file.totalAmount || 0, file.isColor || false]
+        );
+        const id = orderRes.rows[0].id;
+        logStatusChange(id, 'none', 'uploading');
+        ids.push(id);
+      }
+      return ids;
+    });
     
     res.json({ orderIds });
   } catch (err) {
@@ -250,20 +252,28 @@ router.post('/files/upload-url', [
     // 1. Get or create a placeholder in Orders table
     const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
     let orderId = existingOrderId;
-    
-    if (orderId && contentType !== 'application/json') {
-      // Verify the existing order matches the user
-      const check = await db.query('SELECT id FROM orders WHERE id = $1 AND user_id = $2', [orderId, req.user.id]);
-      if (check.rows.length === 0) {
-        return res.status(403).json({ message: "Invalid orderId provided" });
-      }
-    } else if (contentType !== 'application/json') {
-      const orderRes = await db.query(
-        'INSERT INTO orders (user_id, vendor_id, status, page_count, total_amount, is_color) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-        [req.user.id, sanitizedVendorId, 'uploading', pageCount || 1, totalAmount || 0, isColor || false]
-      );
-      orderId = orderRes.rows[0].id;
-      logStatusChange(orderId, 'none', 'uploading');
+
+    if (contentType !== 'application/json') {
+      orderId = await db.withTransaction(async (client) => {
+        if (orderId) {
+          // Verify the existing order matches the user
+          const check = await client.query('SELECT id FROM orders WHERE id = $1 AND user_id = $2', [orderId, req.user.id]);
+          if (check.rows.length === 0) {
+            const err = new Error('Invalid orderId provided');
+            err.statusCode = 403;
+            throw err;
+          }
+          return orderId;
+        }
+
+        const orderRes = await client.query(
+          'INSERT INTO orders (user_id, vendor_id, status, page_count, total_amount, is_color) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+          [req.user.id, sanitizedVendorId, 'uploading', pageCount || 1, totalAmount || 0, isColor || false]
+        );
+        const id = orderRes.rows[0].id;
+        logStatusChange(id, 'none', 'uploading');
+        return id;
+      });
     } else {
       // For JSON preferences, we generate a random temporary numeric ID if one isn't provided
       orderId = existingOrderId || Date.now().toString().slice(-8);
@@ -274,26 +284,28 @@ router.post('/files/upload-url', [
     const finalFileName = `${username}${orderId}.${extension}`;
     const filePath = `${sanitizedVendorId}/${finalFileName}`;
 
-    // 3. Update the order with the final file name (SKIP FOR JSON)
+    // 3. Update the order with the final file name + insert uploaded_files (SKIP FOR JSON)
     if (contentType !== 'application/json') {
-      await db.query(
-        'UPDATE orders SET file_name = $1 WHERE id = $2',
-        [finalFileName, orderId]
-      );
+      await db.withTransaction(async (client) => {
+        await client.query(
+          'UPDATE orders SET file_name = $1 WHERE id = $2',
+          [finalFileName, orderId]
+        );
+
+        // 4. Insert into uploaded_files for storage tracking (1 hour retention)
+        const deleteAfter = new Date(Date.now() + 1 * 60 * 60 * 1000);
+        await client.query(
+          `INSERT INTO uploaded_files (object_key, vendor_id, user_id, file_name, status, delete_after)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [filePath, sanitizedVendorId, req.user.id, finalFileName, 'uploaded', deleteAfter]
+        );
+      });
     }
 
     const bucketName = process.env.R2_BUCKET_NAME ? process.env.R2_BUCKET_NAME.trim() : '';
     if (!bucketName) {
       throw new Error("R2_BUCKET_NAME is missing on server");
     }
-
-    // 4. Insert into uploaded_files for storage tracking (1 hour retention)
-    const deleteAfter = new Date(Date.now() + 1 * 60 * 60 * 1000);
-    await db.query(
-      `INSERT INTO uploaded_files (object_key, vendor_id, user_id, file_name, status, delete_after)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [filePath, sanitizedVendorId, req.user.id, finalFileName, 'uploaded', deleteAfter]
-    );
 
     // 5. Removed Print Queue usage as per user request
 
@@ -308,6 +320,9 @@ router.post('/files/upload-url', [
     res.json({ uploadUrl, filePath, bucket: bucketName, orderId, finalFileName });
   } catch (err) {
     console.error("R2 Upload URL Error Detail:", err);
+    if (err?.statusCode === 403) {
+      return res.status(403).json({ message: err.message || "Invalid orderId provided" });
+    }
     // Explicitly returning the actual error message to the frontend for diagnostics - UPDATED to user friendly
     res.status(500).json({
       message: `We're having trouble setting up your upload. Please try again.`
@@ -357,12 +372,13 @@ router.post('/orders/:id/confirm-upload', [auth], async (req, res) => {
       return res.status(400).json({ message: "File upload could not be verified on the server." });
     }
 
-    // 3. Update status
-    const result = await db.query(`
-      UPDATE orders SET status = 'pending', updated_at = NOW() 
-      WHERE id = $1
-      RETURNING vendor_id
-    `, [id]);
+    // 3. Update status (transaction: status transition must be atomic)
+    const result = await db.withTransaction(async (client) => client.query(`
+        UPDATE orders SET status = 'pending', updated_at = NOW() 
+        WHERE id = $1
+        RETURNING vendor_id
+      `, [id])
+    );
 
     logStatusChange(id, status, 'pending');
 
@@ -758,14 +774,15 @@ router.post('/printed-legacy', [auth, sensitiveLimiter, validateBody(printedLega
     }
 
     const oldStatus = checkRes.rows[0].status;
-    await db.query("UPDATE orders SET status = 'printed', updated_at = NOW() WHERE id = $1", [id]);
-    
-    // Also update uploaded_files status to sync with cleanup policy
-    await db.query(`
-      UPDATE uploaded_files 
-      SET status = 'printed' 
-      WHERE file_name = (SELECT file_name FROM orders WHERE id = $1)
-    `, [id]);
+    await db.withTransaction(async (client) => {
+      await client.query("UPDATE orders SET status = 'printed', updated_at = NOW() WHERE id = $1", [id]);
+      // Also update uploaded_files status to sync with cleanup policy
+      await client.query(`
+        UPDATE uploaded_files 
+        SET status = 'printed' 
+        WHERE file_name = (SELECT file_name FROM orders WHERE id = $1)
+      `, [id]);
+    });
 
     logStatusChange(id, oldStatus, 'printed');
     invalidateCache(checkRes.rows[0].vendor_id);
@@ -795,14 +812,15 @@ router.post('/delete', [auth, destructiveLimiter, validateBody(deleteOrderSchema
     }
 
     // Just change status so the order stays in queue for an hour (cleanup handles archiving later)
-    await db.query("UPDATE orders SET status = 'cancelled', updated_at = NOW() WHERE id = $1", [id]);
-    
-    // Also update uploaded_files status to sync with cleanup policy
-    await db.query(`
-      UPDATE uploaded_files 
-      SET status = 'cancelled' 
-      WHERE file_name = (SELECT file_name FROM orders WHERE id = $1)
-    `, [id]);
+    await db.withTransaction(async (client) => {
+      await client.query("UPDATE orders SET status = 'cancelled', updated_at = NOW() WHERE id = $1", [id]);
+      // Also update uploaded_files status to sync with cleanup policy
+      await client.query(`
+        UPDATE uploaded_files 
+        SET status = 'cancelled' 
+        WHERE file_name = (SELECT file_name FROM orders WHERE id = $1)
+      `, [id]);
+    });
 
     logStatusChange(id, orderData.status, 'cancelled (stays in queue for 1h)');
 
@@ -1075,16 +1093,17 @@ router.post('/update-order-status', [
       return res.json({ success: true, message: `Order already marked as ${status}` });
     }
     
-    await db.query(
-      'UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2',
-      [status, orderId]
-    );
-
-    await db.query(`
-      UPDATE uploaded_files 
-      SET status = $1 
-      WHERE file_name = (SELECT file_name FROM orders WHERE id = $2)
-    `, [status, orderId]);
+    await db.withTransaction(async (client) => {
+      await client.query(
+        'UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2',
+        [status, orderId]
+      );
+      await client.query(`
+        UPDATE uploaded_files 
+        SET status = $1 
+        WHERE file_name = (SELECT file_name FROM orders WHERE id = $2)
+      `, [status, orderId]);
+    });
     
     logStatusChange(orderId, oldStatus, status);
 

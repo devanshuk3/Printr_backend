@@ -22,7 +22,9 @@ async function main() {
   };
 
   try {
-    const check = await db.query('SELECT id FROM vendors WHERE LOWER(vendor_id) = LOWER($1)', [data.vendor_id]);
+    const normalizedVendorId = String(data.vendor_id || '').trim().toLowerCase();
+    data.vendor_id = normalizedVendorId;
+    const check = await db.query('SELECT id FROM vendors WHERE vendor_id = $1', [normalizedVendorId]);
     if (check.rows.length > 0) {
       console.log('already exists', data.vendor_id);
       return;

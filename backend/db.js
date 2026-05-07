@@ -29,6 +29,27 @@ pool.on('error', (err) => {
   console.error('[DB] Unexpected error on idle client:', err.message);
 });
 
+/**
+ * Run a set of queries in a single DB transaction.
+ * Usage:
+ *   await db.withTransaction(async (client) => { await client.query(...); });
+ */
+const withTransaction = async (fn) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    throw err;
+  } finally {
+    client.release();
+  }
+};
+
 module.exports = {
   query: (text, params) => pool.query(text, params),
+  withTransaction,
 };
