@@ -95,3 +95,39 @@ CREATE TABLE IF NOT EXISTS email_otps (
     attempts INTEGER DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- ============================================
+-- Performance Indexes
+-- ============================================
+
+-- Orders: vendor queue lookups filtered by status, sorted by newest first
+CREATE INDEX IF NOT EXISTS idx_orders_vendor_status_created
+ON orders(vendor_id, status, created_at DESC);
+
+-- Orders: user order history lookups
+CREATE INDEX IF NOT EXISTS idx_orders_user
+ON orders(user_id);
+
+-- Uploaded files: vendor file lookups
+CREATE INDEX IF NOT EXISTS idx_uploaded_files_vendor
+ON uploaded_files(vendor_id);
+
+-- Uploaded files: cleanup job scans by expiry
+CREATE INDEX IF NOT EXISTS idx_uploaded_files_delete_after
+ON uploaded_files(delete_after);
+
+-- Uploaded files: file name searches
+CREATE INDEX IF NOT EXISTS idx_uploaded_files_file_name
+ON uploaded_files(file_name);
+
+-- Vendors: vendor_id lookups (supplements the UNIQUE constraint)
+CREATE INDEX IF NOT EXISTS idx_vendors_vendor_id
+ON vendors(vendor_id);
+
+-- Users: username lookups
+CREATE INDEX IF NOT EXISTS idx_users_username
+ON users(username);
+
+-- Users: email lookups
+CREATE INDEX IF NOT EXISTS idx_users_email
+ON users(email);

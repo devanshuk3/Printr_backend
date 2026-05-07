@@ -159,7 +159,17 @@ const initDb = async () => {
       'CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email))',
       'CREATE INDEX IF NOT EXISTS idx_users_username_lower ON users (LOWER(username))',
       'CREATE INDEX IF NOT EXISTS idx_email_otps_user_id ON email_otps(user_id)',
-      'CREATE INDEX IF NOT EXISTS idx_email_otps_created_at ON email_otps(created_at)'
+      'CREATE INDEX IF NOT EXISTS idx_email_otps_created_at ON email_otps(created_at)',
+
+      // Performance indexes (safe to re-run)
+      'CREATE INDEX IF NOT EXISTS idx_orders_vendor_status_created ON orders(vendor_id, status, created_at DESC)',
+      'CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id)',
+      'CREATE INDEX IF NOT EXISTS idx_uploaded_files_vendor ON uploaded_files(vendor_id)',
+      'CREATE INDEX IF NOT EXISTS idx_uploaded_files_delete_after ON uploaded_files(delete_after)',
+      'CREATE INDEX IF NOT EXISTS idx_uploaded_files_file_name ON uploaded_files(file_name)',
+      'CREATE INDEX IF NOT EXISTS idx_vendors_vendor_id ON vendors(vendor_id)',
+      'CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)',
+      'CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)'
     ];
 
     for (const sql of migrations) {
