@@ -161,6 +161,14 @@ const initDb = async () => {
       'CREATE INDEX IF NOT EXISTS idx_email_otps_user_id ON email_otps(user_id)',
       'CREATE INDEX IF NOT EXISTS idx_email_otps_created_at ON email_otps(created_at)',
 
+      // Normalize critical identifiers (ensures plain indexes are effective)
+      'UPDATE users SET email = LOWER(TRIM(email)) WHERE email IS NOT NULL AND email <> LOWER(TRIM(email))',
+      'UPDATE users SET username = LOWER(TRIM(username)) WHERE username IS NOT NULL AND username <> LOWER(TRIM(username))',
+      'UPDATE vendors SET vendor_id = LOWER(TRIM(vendor_id)) WHERE vendor_id IS NOT NULL AND vendor_id <> LOWER(TRIM(vendor_id))',
+      'UPDATE orders SET vendor_id = LOWER(TRIM(vendor_id)) WHERE vendor_id IS NOT NULL AND vendor_id <> LOWER(TRIM(vendor_id))',
+      'UPDATE archived_orders SET vendor_id = LOWER(TRIM(vendor_id)) WHERE vendor_id IS NOT NULL AND vendor_id <> LOWER(TRIM(vendor_id))',
+      'UPDATE uploaded_files SET vendor_id = LOWER(TRIM(vendor_id)) WHERE vendor_id IS NOT NULL AND vendor_id <> LOWER(TRIM(vendor_id))',
+
       // Performance indexes (safe to re-run)
       'CREATE INDEX IF NOT EXISTS idx_orders_vendor_status_created ON orders(vendor_id, status, created_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id)',

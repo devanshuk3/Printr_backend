@@ -1,5 +1,7 @@
 const db = require('../db');
 
+const normalizeIdentifier = (value) => (value == null ? '' : String(value)).trim().toLowerCase();
+
 /**
  * Account lockout configuration
  */
@@ -13,9 +15,10 @@ const LOCKOUT_CONFIG = {
  * Returns { locked: boolean, remainingMs?: number }
  */
 const checkLockout = async (table, identifierColumn, identifierValue) => {
+  const normalized = normalizeIdentifier(identifierValue);
   const result = await db.query(
-    `SELECT failed_login_attempts, locked_until FROM ${table} WHERE LOWER(${identifierColumn}) = LOWER($1)`,
-    [identifierValue]
+    `SELECT failed_login_attempts, locked_until FROM ${table} WHERE ${identifierColumn} = $1`,
+    [normalized]
   );
 
   if (result.rows.length === 0) {
@@ -43,13 +46,14 @@ const checkLockout = async (table, identifierColumn, identifierValue) => {
  * Record a failed login attempt. If threshold is exceeded, lock the account.
  */
 const recordFailedAttempt = async (table, identifierColumn, identifierValue) => {
+  const normalized = normalizeIdentifier(identifierValue);
   // Increment failed attempts counter
   const result = await db.query(
     `UPDATE ${table}
      SET failed_login_attempts = COALESCE(failed_login_attempts, 0) + 1
-     WHERE LOWER(${identifierColumn}) = LOWER($1)
+     WHERE ${identifierColumn} = $1
      RETURNING failed_login_attempts`,
-    [identifierValue]
+    [normalized]
   );
 
   if (result.rows.length === 0) return;
@@ -62,8 +66,8 @@ const recordFailedAttempt = async (table, identifierColumn, identifierValue) => 
     await db.query(
       `UPDATE ${table}
        SET locked_until = $1
-       WHERE LOWER(${identifierColumn}) = LOWER($2)`,
-      [lockedUntil, identifierValue]
+       WHERE ${identifierColumn} = $2`,
+      [lockedUntil, normalized]
     );
     console.log(`[Security] Account locked: ${identifierValue} (${table}) until ${lockedUntil.toISOString()}`);
   }
@@ -75,11 +79,12 @@ const recordFailedAttempt = async (table, identifierColumn, identifierValue) => 
  * Reset failed attempts after a successful login.
  */
 const resetFailedAttempts = async (table, identifierColumn, identifierValue) => {
+  const normalized = normalizeIdentifier(identifierValue);
   await db.query(
     `UPDATE ${table}
      SET failed_login_attempts = 0, locked_until = NULL
-     WHERE LOWER(${identifierColumn}) = LOWER($1)`,
-    [identifierValue]
+     WHERE ${identifierColumn} = $1`,
+    [normalized]
   );
 };
 
@@ -90,10 +95,11 @@ const resetFailedAttempts = async (table, identifierColumn, identifierValue) => 
  * Since login accepts either, we query by both.
  */
 const checkUserLockout = async (identifier) => {
+  const normalized = normalizeIdentifier(identifier);
   const result = await db.query(
     `SELECT failed_login_attempts, locked_until FROM users
-     WHERE LOWER(email) = LOWER($1) OR LOWER(username) = LOWER($1)`,
-    [identifier]
+     WHERE email = $1 OR username = $1`,
+    [normalized]
   );
 
   if (result.rows.length === 0) {
@@ -116,13 +122,14 @@ const checkUserLockout = async (identifier) => {
 };
 
 const recordUserFailedAttempt = async (identifier) => {
+  const normalized = normalizeIdentifier(identifier);
   // We need to update by the same flexible identifier
   const result = await db.query(
     `UPDATE users
      SET failed_login_attempts = COALESCE(failed_login_attempts, 0) + 1
-     WHERE LOWER(email) = LOWER($1) OR LOWER(username) = LOWER($1)
+     WHERE email = $1 OR username = $1
      RETURNING failed_login_attempts`,
-    [identifier]
+    [normalized]
   );
 
   if (result.rows.length === 0) return;
@@ -134,8 +141,8 @@ const recordUserFailedAttempt = async (identifier) => {
     await db.query(
       `UPDATE users
        SET locked_until = $1
-       WHERE LOWER(email) = LOWER($2) OR LOWER(username) = LOWER($2)`,
-      [lockedUntil, identifier]
+       WHERE email = $2 OR username = $2`,
+      [lockedUntil, normalized]
     );
     console.log(`[Security] User account locked: ${identifier} until ${lockedUntil.toISOString()}`);
   }
@@ -144,11 +151,12 @@ const recordUserFailedAttempt = async (identifier) => {
 };
 
 const resetUserFailedAttempts = async (identifier) => {
+  const normalized = normalizeIdentifier(identifier);
   await db.query(
     `UPDATE users
      SET failed_login_attempts = 0, locked_until = NULL
-     WHERE LOWER(email) = LOWER($1) OR LOWER(username) = LOWER($1)`,
-    [identifier]
+     WHERE email = $1 OR username = $1`,
+    [normalized]
   );
 };
 

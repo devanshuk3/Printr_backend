@@ -33,6 +33,8 @@ router.post('/register', [
   const { fullName, email, username, password } = req.body;
 
   try {
+    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedUsername = username.toLowerCase().trim();
     // Hash password first
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
@@ -43,7 +45,7 @@ router.post('/register', [
     try {
       newUser = await db.query(
         'INSERT INTO users (full_name, email, username, password, is_verified) VALUES ($1, $2, $3, $4, false) RETURNING id, full_name, email, username',
-        [fullName, email, username, hashedPassword]
+        [fullName, normalizedEmail, normalizedUsername, hashedPassword]
       );
     } catch (insertErr) {
       if (insertErr.code === '23505') { // Unique violation in Postgres
@@ -90,15 +92,15 @@ router.post('/login', [
   const { identifier, password } = req.body;
 
   try {
+    const normalizedIdentifier = identifier.toLowerCase().trim();
     // ── Account lockout check ──
-    const lockoutStatus = await checkUserLockout(identifier);
+    const lockoutStatus = await checkUserLockout(normalizedIdentifier);
     if (lockoutStatus.locked) {
       return res.status(423).json({ message: lockoutStatus.message });
     }
 
-    const normalizedIdentifier = identifier.toLowerCase();
     const userRes = await db.query(
-      'SELECT id, full_name, email, username, password, is_verified, role FROM users WHERE LOWER(email) = $1 OR LOWER(username) = $1',
+      'SELECT id, full_name, email, username, password, is_verified, role FROM users WHERE email = $1 OR username = $1',
       [normalizedIdentifier]
     );
     
@@ -116,7 +118,7 @@ router.post('/login', [
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       // ── Record failed attempt & potentially lock ──
-      const attempts = await recordUserFailedAttempt(identifier);
+      const attempts = await recordUserFailedAttempt(normalizedIdentifier);
       const remaining = 5 - (attempts || 0);
       if (remaining <= 0) {
         return res.status(423).json({ message: "Account locked due to too many failed attempts. Try again in 15 minutes." });
@@ -125,7 +127,7 @@ router.post('/login', [
     }
 
     // ── Reset failed attempts on successful password match ──
-    await resetUserFailedAttempts(identifier);
+    await resetUserFailedAttempts(normalizedIdentifier);
 
     // Block login if email not verified
     if (!user.is_verified) {
@@ -209,12 +211,13 @@ router.post('/google', [
     const payload = ticket.getPayload();
     const { email, name } = payload;
 
-    let userRes = await db.query('SELECT id, full_name, email, username, role FROM users WHERE email = $1', [email]);
+    const normalizedEmail = String(email || '').toLowerCase().trim();
+    let userRes = await db.query('SELECT id, full_name, email, username, role FROM users WHERE email = $1', [normalizedEmail]);
     let user;
 
     if (userRes.rows.length === 0) {
       // Create new user
-      let username = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '');
+      let username = normalizedEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '');
       const checkUsername = await db.query('SELECT id FROM users WHERE username = $1 LIMIT 1', [username]);
       if (checkUsername.rows.length > 0) {
         username = `${username}_${crypto.randomBytes(2).toString('hex')}`;
@@ -227,7 +230,7 @@ router.post('/google', [
 
       const newUser = await db.query(
         'INSERT INTO users (full_name, email, username, password, is_verified) VALUES ($1, $2, $3, $4, true) RETURNING id, full_name, email, username, role',
-        [name, email, username, hashedPassword]
+        [name, normalizedEmail, username.toLowerCase().trim(), hashedPassword]
       );
       user = newUser.rows[0];
     } else {
@@ -260,14 +263,14 @@ router.put('/username', [
   const { username } = req.body;
 
   try {
-    const normalizedUsername = username.toLowerCase();
-    const checkRes = await db.query('SELECT id FROM users WHERE LOWER(username) = $1 LIMIT 1', [normalizedUsername]);
+    const normalizedUsername = username.toLowerCase().trim();
+    const checkRes = await db.query('SELECT id FROM users WHERE username = $1 LIMIT 1', [normalizedUsername]);
     if (checkRes.rows.length > 0 && checkRes.rows[0].id !== req.user.id) {
       return res.status(400).json({ message: "Username already taken" });
     }
 
-    await db.query('UPDATE users SET username = $1 WHERE id = $2', [username, req.user.id]);
-    res.json({ message: "Username updated successfully", username });
+    await db.query('UPDATE users SET username = $1 WHERE id = $2', [normalizedUsername, req.user.id]);
+    res.json({ message: "Username updated successfully", username: normalizedUsername });
   } catch (err) {
     handleError(res, err, "Username update failed");
   }
@@ -283,8 +286,8 @@ router.get('/user/:username', [
 
   try {
     const userRes = await db.query(
-      'SELECT full_name, email, username FROM users WHERE LOWER(username) = LOWER($1)',
-      [username]
+      'SELECT full_name, email, username FROM users WHERE username = $1',
+      [String(username || '').toLowerCase().trim()]
     );
 
     if (userRes.rows.length === 0) {

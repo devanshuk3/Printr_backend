@@ -28,9 +28,11 @@ const totalCountCache = new Map(); // key: vendor_id, value: { count: number, ti
 
 router.use(generalLimiter);
 
+const normalizeVendorId = (value) => (value == null ? '' : String(value)).trim().toLowerCase();
+
 const invalidateCache = (vendorId) => {
   if (!vendorId) return;
-  const key = vendorId.toLowerCase().trim();
+  const key = normalizeVendorId(vendorId);
   queueCache.delete(key);
   totalCountCache.delete(key);
   console.log(`[Cache] Invalidated queue for vendor: ${vendorId}`);
@@ -80,9 +82,10 @@ router.get('/verify/:vendorId', [
   const { vendorId } = req.params;
 
   try {
+    const normalizedVendorId = normalizeVendorId(vendorId);
     const result = await db.query(
-      'SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, phone, upi_id, pages_printed, platform_fee, has_bw_printer, has_color_printer FROM vendors WHERE LOWER(TRIM(vendor_id)) = LOWER(TRIM($1))',
-      [vendorId]
+      'SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, phone, upi_id, pages_printed, platform_fee, has_bw_printer, has_color_printer FROM vendors WHERE vendor_id = $1',
+      [normalizedVendorId]
     );
 
     if (result.rows.length === 0) {
@@ -113,6 +116,7 @@ router.post('/increment-stats', [
   const { vendorId, pages, totalAmount } = req.body;
 
   try {
+    const normalizedVendorId = normalizeVendorId(vendorId);
     // Platform fee: 8% of the total order amount
     const PLATFORM_FEE_PERCENT = 0.08;
     let feeIncrement = 0;
@@ -123,8 +127,8 @@ router.post('/increment-stats', [
     } else {
       // Fallback: estimate from pages * bw_price
       const vendorRes = await db.query(
-        'SELECT bw_price FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
-        [vendorId]
+        'SELECT bw_price FROM vendors WHERE vendor_id = $1',
+        [normalizedVendorId]
       );
       if (vendorRes.rows.length > 0) {
         const bwPrice = parseFloat(vendorRes.rows[0].bw_price) || 0;
@@ -136,8 +140,8 @@ router.post('/increment-stats', [
       `UPDATE vendors 
        SET pages_printed = COALESCE(pages_printed, 0) + $1, 
            platform_fee = COALESCE(platform_fee, 0) + $2 
-       WHERE LOWER(vendor_id) = LOWER($3)`,
-      [pages, feeIncrement.toFixed(2), vendorId]
+       WHERE vendor_id = $3`,
+      [pages, feeIncrement.toFixed(2), normalizedVendorId]
     );
 
     res.json({ message: "Stats updated successfully" });
@@ -182,12 +186,12 @@ router.post('/files/clear-vendor', [
     const bucketName = (process.env.R2_BUCKET_NAME || '').trim();
     if (!bucketName) throw new Error("R2_BUCKET_NAME is not configured");
 
-    const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
+    const sanitizedVendorId = normalizeVendorId(vendorId).replace(/[^a-zA-Z0-9_-]/g, '');
 
     // Optimize: Instead of LISTing the R2 bucket (Class A), we query the database
     // This is much faster and cheaper as it avoids scanning the entire bucket folder.
     const result = await db.query(
-      'SELECT id, object_key FROM uploaded_files WHERE LOWER(vendor_id) = LOWER($1) AND deleted_at IS NULL',
+      'SELECT id, object_key FROM uploaded_files WHERE vendor_id = $1 AND deleted_at IS NULL',
       [sanitizedVendorId]
     );
 
@@ -377,7 +381,7 @@ router.get('/files/history', auth, async (req, res) => {
          SELECT o.file_name, o.created_at as uploaded_at, o.status, f.deleted_at, v.shop_name
          FROM orders o
          LEFT JOIN uploaded_files f ON o.file_name = f.file_name
-         LEFT JOIN vendors v ON LOWER(o.vendor_id) = LOWER(v.vendor_id)
+         LEFT JOIN vendors v ON o.vendor_id = v.vendor_id
          WHERE o.user_id = $1 AND o.file_name NOT LIKE '%.json' AND o.status != 'uploading'
          
          UNION ALL
@@ -385,7 +389,7 @@ router.get('/files/history', auth, async (req, res) => {
          SELECT a.file_name, a.created_at as uploaded_at, a.status, f.deleted_at, v.shop_name
          FROM archived_orders a
          LEFT JOIN uploaded_files f ON a.file_name = f.file_name
-         LEFT JOIN vendors v ON LOWER(a.vendor_id) = LOWER(v.vendor_id)
+         LEFT JOIN vendors v ON a.vendor_id = v.vendor_id
          WHERE a.user_id = $1 AND a.file_name NOT LIKE '%.json' AND a.status != 'uploading'
        ) as combined_history
        ORDER BY uploaded_at DESC
@@ -438,15 +442,16 @@ router.post('/login', [
   const { vendor_id, password } = req.body;
   
   try {
+    const normalizedVendorId = normalizeVendorId(vendor_id);
     // ── Account lockout check ──
-    const lockoutStatus = await checkVendorLockout(vendor_id);
+    const lockoutStatus = await checkVendorLockout(normalizedVendorId);
     if (lockoutStatus.locked) {
       return res.status(423).json({ success: false, message: lockoutStatus.message });
     }
 
     const result = await db.query(
-      'SELECT * FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
-      [vendor_id]
+      'SELECT * FROM vendors WHERE vendor_id = $1',
+      [normalizedVendorId]
     );
 
     if (result.rows.length === 0) {
@@ -460,12 +465,12 @@ router.post('/login', [
     const isMatch = await bcrypt.compare(password, vendor.password);
     if (!isMatch) {
       // ── Record failed attempt & potentially lock ──
-      await recordVendorFailedAttempt(vendor_id);
+      await recordVendorFailedAttempt(normalizedVendorId);
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
     // ── Reset failed attempts on success ──
-    await resetVendorFailedAttempts(vendor_id);
+    await resetVendorFailedAttempts(normalizedVendorId);
 
     // Reuse the user JWT secret for simplicity if needed, or vendor-specific token
     const jwt = require('jsonwebtoken');
@@ -490,10 +495,11 @@ router.post('/register', [
   const data = req.body;
 
   try {
+    const normalizedVendorId = normalizeVendorId(data.vendor_id).replace(/[^a-zA-Z0-9_-]/g, '');
     // Check if vendor already exists
     const checkExist = await db.query(
-      'SELECT id FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
-      [data.vendor_id]
+      'SELECT id FROM vendors WHERE vendor_id = $1',
+      [normalizedVendorId]
     );
 
     if (checkExist.rows.length > 0) {
@@ -519,7 +525,7 @@ router.post('/register', [
 
     // Define all potential columns and their values
     const allFields = [
-      { col: 'vendor_id',         val: data.vendor_id },
+      { col: 'vendor_id',         val: normalizedVendorId },
       { col: 'password',          val: hashedPassword },
       { col: 'full_name',         val: data.full_name },
       { col: 'shop_name',         val: data.shop_name },
@@ -604,12 +610,12 @@ router.get('/files', [auth, queueLimiter, validateQuery(queueQuerySchema)], asyn
 
   // Verify the authenticated vendor can only access their own queue
   const authVendorId = req.user.vendor_id;
-  if (authVendorId && authVendorId.toLowerCase() !== vendorId.toString().toLowerCase().trim()) {
+  if (authVendorId && normalizeVendorId(authVendorId) !== normalizeVendorId(vendorId)) {
     return res.status(403).json({ message: "Access denied: You can only view your own queue" });
   }
 
   try {
-    const sanitizedVendorId = vendorId.toLowerCase().trim();
+    const sanitizedVendorId = normalizeVendorId(vendorId);
     const limit = parseInt(req.query.limit) || 20;
     const offset = parseInt(req.query.offset) || 0;
     const cursor = req.query.cursor; // Timestamp for cursor-based pagination
@@ -630,7 +636,7 @@ router.get('/files', [auth, queueLimiter, validateQuery(queueQuerySchema)], asyn
     } else {
         const countRes = await db.query(`
           SELECT COUNT(*) FROM orders 
-          WHERE LOWER(vendor_id) = LOWER($1) 
+          WHERE vendor_id = $1 
           AND status NOT IN ('completed', 'rejected', 'uploading', 'failed')
         `, [sanitizedVendorId]);
         totalCount = parseInt(countRes.rows[0].count);
@@ -652,7 +658,7 @@ router.get('/files', [auth, queueLimiter, validateQuery(queueQuerySchema)], asyn
       FROM orders o
       LEFT JOIN users u ON o.user_id = u.id
       LEFT JOIN uploaded_files f ON o.file_name = f.file_name
-      WHERE LOWER(o.vendor_id) = LOWER($1) 
+      WHERE o.vendor_id = $1 
         AND o.status NOT IN ('completed', 'rejected', 'uploading', 'failed')
         AND o.file_name NOT LIKE '%.xml'
         ${cursor ? 'AND o.created_at < $4' : ''}
@@ -863,7 +869,7 @@ router.put('/settings', [
     has_bw_printer, has_color_printer, bw_printer, color_printer
   } = req.body;
 
-  const vendorIdFromAuth = req.user.vendor_id;
+  const vendorIdFromAuth = normalizeVendorId(req.user.vendor_id);
 
   try {
     // Dynamically build update query
@@ -964,7 +970,7 @@ router.put('/settings', [
     const query = `
       UPDATE vendors 
       SET ${updates.join(', ')} 
-      WHERE LOWER(vendor_id) = LOWER($${paramCounter})
+      WHERE vendor_id = $${paramCounter}
       RETURNING *`;
 
     const result = await db.query(query, values);
@@ -985,10 +991,10 @@ router.put('/settings', [
 
 // 8. Get current vendor settings (PROTECTED)
 router.get('/settings/me', auth, async (req, res) => {
-  const vendorIdFromAuth = req.user.vendor_id;
+  const vendorIdFromAuth = normalizeVendorId(req.user.vendor_id);
   try {
     const result = await db.query(
-      'SELECT shop_name, bw_price, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, upi_id, auto_accept_jobs, enable_upi, min_amount, has_bw_printer, has_color_printer, bw_printer, color_printer FROM vendors WHERE LOWER(vendor_id) = LOWER($1)',
+      'SELECT shop_name, bw_price, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, upi_id, auto_accept_jobs, enable_upi, min_amount, has_bw_printer, has_color_printer, bw_printer, color_printer FROM vendors WHERE vendor_id = $1',
       [vendorIdFromAuth]
     );
 
@@ -1004,7 +1010,7 @@ router.get('/settings/me', auth, async (req, res) => {
 
 // 9. Get Vendor Activity Log (RECENT COMPLETED/CANCELLED ORDERS)
 router.get('/activity-log', auth, async (req, res) => {
-  const vendorIdFromAuth = req.user.vendor_id;
+  const vendorIdFromAuth = normalizeVendorId(req.user.vendor_id);
   try {
     const result = await db.query(`
       SELECT * FROM (
@@ -1015,7 +1021,7 @@ router.get('/activity-log', auth, async (req, res) => {
           u.full_name as customer_name
         FROM orders o
         LEFT JOIN users u ON o.user_id = u.id
-        WHERE LOWER(o.vendor_id) = LOWER($1) 
+        WHERE o.vendor_id = $1 
           AND o.status IN ('completed', 'cancelled', 'printed', 'rejected')
           
         UNION ALL
@@ -1027,7 +1033,7 @@ router.get('/activity-log', auth, async (req, res) => {
           u.full_name as customer_name
         FROM archived_orders a
         LEFT JOIN users u ON a.user_id = u.id
-        WHERE LOWER(a.vendor_id) = LOWER($1) 
+        WHERE a.vendor_id = $1 
           AND a.status IN ('completed', 'cancelled', 'printed', 'rejected')
       ) as combined_activity
       ORDER BY created_at DESC

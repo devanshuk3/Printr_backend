@@ -76,9 +76,10 @@ router.post('/calculate', [
 
   try {
     // 1. Fetch vendor pricing from the database (authoritative source)
+    const normalizedVendorId = String(vendorId || '').trim().toLowerCase();
     const vendorRes = await db.query(
-      'SELECT bw_price, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, has_bw_printer, has_color_printer FROM vendors WHERE LOWER(TRIM(vendor_id)) = LOWER(TRIM($1))',
-      [vendorId]
+      'SELECT bw_price, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, has_bw_printer, has_color_printer FROM vendors WHERE vendor_id = $1',
+      [normalizedVendorId]
     );
 
     if (vendorRes.rows.length === 0) {
