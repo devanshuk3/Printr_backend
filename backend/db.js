@@ -52,4 +52,5 @@ const withTransaction = async (fn) => {
 module.exports = {
   query: (text, params) => pool.query(text, params),
   withTransaction,
+  pool, // Export the pool to allow closing it in initialization scripts
 };

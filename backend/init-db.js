@@ -104,11 +104,22 @@ const initDb = async () => {
     ];
 
     for (const table of tables) {
-      try {
-        console.log(`[Init] Ensuring table exists: ${table.name}`);
-        await db.query(table.query);
-      } catch (err) {
-        console.warn(`[Init] Warning/Check failed for ${table.name}:`, err.message);
+      let retries = 3;
+      while (retries > 0) {
+        try {
+          console.log(`[Init] Ensuring table exists: ${table.name}`);
+          await db.query(table.query);
+          break; // success
+        } catch (err) {
+          retries--;
+          if (err.message.includes('terminated unexpectedly') && retries > 0) {
+            console.warn(`[Init] Connection terminated for ${table.name}. Retrying... (${retries} left)`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          } else {
+            console.warn(`[Init] Warning/Check failed for ${table.name}:`, err.message);
+            break;
+          }
+        }
       }
     }
 
@@ -185,10 +196,19 @@ const initDb = async () => {
     ];
 
     for (const sql of migrations) {
-      try {
-        await db.query(sql);
-      } catch (err) {
-        // Silent ignore for IF NOT EXISTS cases
+      let retries = 2;
+      while (retries > 0) {
+        try {
+          await db.query(sql);
+          break;
+        } catch (err) {
+          retries--;
+          if (err.message.includes('terminated unexpectedly') && retries > 0) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          } else {
+            break; // Silent ignore for IF NOT EXISTS cases or fatal errors
+          }
+        }
       }
     }
 
@@ -206,10 +226,16 @@ const initDb = async () => {
     }
 
     console.log('--- DATABASE INITIALIZATION COMPLETE ---');
+    if (db.pool && typeof db.pool.end === 'function') {
+      await db.pool.end();
+    }
     process.exit(0);
   } catch (err) {
     console.error('--- FATAL ERROR DURING INITIALIZATION ---');
     console.error(err.message);
+    if (db.pool && typeof db.pool.end === 'function') {
+      await db.pool.end();
+    }
     process.exit(1);
   }
 };
