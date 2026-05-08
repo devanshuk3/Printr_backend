@@ -148,6 +148,10 @@ const initDb = async () => {
       'ALTER TABLE orders ADD COLUMN IF NOT EXISTS page_count INTEGER DEFAULT 1',
       'ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_color BOOLEAN DEFAULT FALSE',
       'ALTER TABLE orders ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10, 2) DEFAULT 0.00',
+      'ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50) DEFAULT \'Online\'',
+      'ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status VARCHAR(50) DEFAULT \'pending\'',
+      'ALTER TABLE archived_orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50)',
+      'ALTER TABLE archived_orders ADD COLUMN IF NOT EXISTS payment_status VARCHAR(50)',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false',
       'ALTER TABLE email_otps ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0',
       // Account lockout columns (failed login protection)
