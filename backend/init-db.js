@@ -92,13 +92,22 @@ const initDb = async () => {
   try {
     console.log('--- STARTING CONSOLIDATED DATABASE INITIALIZATION ---');
     
-    // Attempt to get a dedicated client for initialization
-    try {
-      client = await db.pool.connect();
-      console.log('[Init] Database connection established successfully.');
-    } catch (connErr) {
-      console.error('[Init] Failed to connect to database:', connErr.message);
-      process.exit(1);
+    // Attempt to get a dedicated client for initialization with retries
+    let connectionRetries = 5;
+    while (connectionRetries > 0) {
+      try {
+        client = await db.pool.connect();
+        console.log('[Init] Database connection established successfully.');
+        break;
+      } catch (connErr) {
+        connectionRetries--;
+        console.warn(`[Init] Failed to connect to database (${connectionRetries} retries left):`, connErr.message);
+        if (connectionRetries === 0) {
+          console.error('[Init] Fatal: Could not establish initial database connection.');
+          process.exit(1);
+        }
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
     }
 
     // Ensure search path is consistent
