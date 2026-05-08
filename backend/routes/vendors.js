@@ -785,7 +785,13 @@ router.post('/printed-legacy', [auth, sensitiveLimiter, validateBody(printedLega
 
     const oldStatus = checkRes.rows[0].status;
     await db.withTransaction(async (client) => {
-      await client.query("UPDATE orders SET status = 'printed', updated_at = NOW() WHERE id = $1", [id]);
+      await client.query(`
+        UPDATE orders 
+        SET status = 'printed', 
+            payment_status = CASE WHEN LOWER(payment_method) IN ('cash on delivery', 'cod') THEN 'completed' ELSE payment_status END, 
+            updated_at = NOW() 
+        WHERE id = $1
+      `, [id]);
       // Also update uploaded_files status to sync with cleanup policy
       await client.query(`
         UPDATE uploaded_files 
@@ -1115,10 +1121,13 @@ router.post('/update-order-status', [
     }
     
     await db.withTransaction(async (client) => {
-      await client.query(
-        'UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2',
-        [status, orderId]
-      );
+      await client.query(`
+        UPDATE orders 
+        SET status = $1, 
+            payment_status = CASE WHEN $1 = 'printed' AND LOWER(payment_method) IN ('cash on delivery', 'cod') THEN 'completed' ELSE payment_status END,
+            updated_at = NOW() 
+        WHERE id = $2
+      `, [status, orderId]);
       await client.query(`
         UPDATE uploaded_files 
         SET status = $1 
