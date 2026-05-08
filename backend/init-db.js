@@ -88,13 +88,26 @@ const initDb = async () => {
     );
   `;
 
+const initDb = async () => {
+  // ... table queries defined above ...
+
+  let client;
   try {
     console.log('--- STARTING CONSOLIDATED DATABASE INITIALIZATION ---');
     
-    // Ensure search path is consistent
-    try { await db.query('SET search_path TO public, auth, "$user";'); } catch (e) {}
+    // Attempt to get a dedicated client for initialization
+    try {
+      client = await db.pool.connect();
+      console.log('[Init] Database connection established successfully.');
+    } catch (connErr) {
+      console.error('[Init] Failed to connect to database:', connErr.message);
+      process.exit(1);
+    }
 
-    // 1. Define all creation queries in an array for sequential execution
+    // Ensure search path is consistent
+    try { await client.query('SET search_path TO public, auth, "$user";'); } catch (e) {}
+
+    // 1. Define all creation queries
     const tables = [
       { name: 'users', query: createUserTableQuery },
       { name: 'vendors', query: createVendorTableQuery },
@@ -108,13 +121,22 @@ const initDb = async () => {
       while (retries > 0) {
         try {
           console.log(`[Init] Ensuring table exists: ${table.name}`);
-          await db.query(table.query);
+          // Set a short timeout for initialization checks
+          await client.query('SET statement_timeout = 5000');
+          await client.query(table.query);
           break; // success
         } catch (err) {
           retries--;
-          if (err.message.includes('terminated unexpectedly') && retries > 0) {
-            console.warn(`[Init] Connection terminated for ${table.name}. Retrying... (${retries} left)`);
-            await new Promise(resolve => setTimeout(resolve, 1000));
+          if (err.message.includes('terminated unexpectedly') || err.message.includes('timeout')) {
+            console.warn(`[Init] Connection issue for ${table.name}: ${err.message}. Reconnecting... (${retries} left)`);
+            try { client.release(true); } catch (e) {} // Destroy the broken client
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            try {
+                client = await db.pool.connect();
+            } catch (connErr) {
+                console.error('[Init] Failed to reconnect:', connErr.message);
+                break;
+            }
           } else {
             console.warn(`[Init] Warning/Check failed for ${table.name}:`, err.message);
             break;
@@ -123,7 +145,7 @@ const initDb = async () => {
       }
     }
 
-    // 2. Perform ALTER TABLE migrations for existing production databases
+    // 2. Perform ALTER TABLE migrations
     const migrations = [
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT \'user\'',
@@ -165,7 +187,6 @@ const initDb = async () => {
       'ALTER TABLE archived_orders ADD COLUMN IF NOT EXISTS payment_status VARCHAR(50)',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false',
       'ALTER TABLE email_otps ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0',
-      // Account lockout columns (failed login protection)
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER DEFAULT 0',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ',
       'ALTER TABLE vendors ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER DEFAULT 0',
@@ -175,16 +196,12 @@ const initDb = async () => {
       'CREATE INDEX IF NOT EXISTS idx_users_username_lower ON users (LOWER(username))',
       'CREATE INDEX IF NOT EXISTS idx_email_otps_user_id ON email_otps(user_id)',
       'CREATE INDEX IF NOT EXISTS idx_email_otps_created_at ON email_otps(created_at)',
-
-      // Normalize critical identifiers (ensures plain indexes are effective)
       'UPDATE users SET email = LOWER(TRIM(email)) WHERE email IS NOT NULL AND email <> LOWER(TRIM(email))',
       'UPDATE users SET username = LOWER(TRIM(username)) WHERE username IS NOT NULL AND username <> LOWER(TRIM(username))',
       'UPDATE vendors SET vendor_id = LOWER(TRIM(vendor_id)) WHERE vendor_id IS NOT NULL AND vendor_id <> LOWER(TRIM(vendor_id))',
       'UPDATE orders SET vendor_id = LOWER(TRIM(vendor_id)) WHERE vendor_id IS NOT NULL AND vendor_id <> LOWER(TRIM(vendor_id))',
       'UPDATE archived_orders SET vendor_id = LOWER(TRIM(vendor_id)) WHERE vendor_id IS NOT NULL AND vendor_id <> LOWER(TRIM(vendor_id))',
       'UPDATE uploaded_files SET vendor_id = LOWER(TRIM(vendor_id)) WHERE vendor_id IS NOT NULL AND vendor_id <> LOWER(TRIM(vendor_id))',
-
-      // Performance indexes (safe to re-run)
       'CREATE INDEX IF NOT EXISTS idx_orders_vendor_status_created ON orders(vendor_id, status, created_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id)',
       'CREATE INDEX IF NOT EXISTS idx_uploaded_files_vendor ON uploaded_files(vendor_id)',
@@ -195,46 +212,58 @@ const initDb = async () => {
       'CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)'
     ];
 
+    console.log('[Init] Running migrations...');
     for (const sql of migrations) {
-      let retries = 2;
-      while (retries > 0) {
-        try {
-          await db.query(sql);
-          break;
-        } catch (err) {
-          retries--;
-          if (err.message.includes('terminated unexpectedly') && retries > 0) {
-            await new Promise(resolve => setTimeout(resolve, 500));
-          } else {
-            break; // Silent ignore for IF NOT EXISTS cases or fatal errors
-          }
+      try {
+        await client.query('SET statement_timeout = 10000');
+        await client.query(sql);
+      } catch (err) {
+        if (err.message.includes('terminated unexpectedly')) {
+           console.warn('[Init] Connection lost during migration. Attempting recovery...');
+           try { client.release(true); } catch (e) {}
+           try {
+               client = await db.pool.connect();
+               await client.query(sql); 
+           } catch(e) {
+               console.warn(`[Init] Migration failed after recovery: ${sql.substring(0, 50)}...`);
+           }
+        } else if (!err.message.includes('already exists') && !err.message.includes('duplicate')) {
+           // Ignore common "already exists" errors, but log others
+           // console.warn(`[Init] Migration skip/error: ${err.message}`);
         }
       }
     }
 
-    // 3. Special Migrations (one-off data fixes)
+    // 3. Special Migrations
     try { 
-        await db.query("UPDATE vendors SET shop_name = name WHERE shop_name IS NULL OR shop_name = ''"); 
+        await client.query("UPDATE vendors SET shop_name = name WHERE (shop_name IS NULL OR shop_name = '') AND name IS NOT NULL"); 
     } catch(e) {}
 
-    // 4. Grandfather existing users as verified (prevents lockout after deploying OTP feature)
+    // 4. Grandfather verified users
     try {
-        await db.query("UPDATE users SET is_verified = true WHERE is_verified IS NULL OR is_verified = false");
+        await client.query("UPDATE users SET is_verified = true WHERE is_verified IS NULL OR is_verified = false");
         console.log('[Init] Existing users marked as verified.');
     } catch(e) {
         console.warn('[Init] Could not update existing user verification status:', e.message);
     }
 
     console.log('--- DATABASE INITIALIZATION COMPLETE ---');
-    if (db.pool && typeof db.pool.end === 'function') {
-      await db.pool.end();
+    if (client) {
+        try { client.release(); } catch(e) {}
+    }
+    if (db.pool) {
+        console.log('[Init] Closing initialization pool...');
+        await db.pool.end();
     }
     process.exit(0);
   } catch (err) {
     console.error('--- FATAL ERROR DURING INITIALIZATION ---');
     console.error(err.message);
-    if (db.pool && typeof db.pool.end === 'function') {
-      await db.pool.end();
+    if (client) {
+        try { client.release(true); } catch(e) {}
+    }
+    if (db.pool) {
+        try { await db.pool.end(); } catch(e) {}
     }
     process.exit(1);
   }

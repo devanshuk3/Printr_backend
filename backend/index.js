@@ -162,6 +162,17 @@ console.log("ENV PORT:", process.env.PORT);
 const server = app.listen(PORT, async () => {
   console.log(`Server started on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
 
+  // Verify database connectivity
+  try {
+    const client = await db.pool.connect();
+    console.log('[DB] Database connectivity verified.');
+    client.release();
+  } catch (dbErr) {
+    console.error('[DB] CRITICAL: Failed to connect to database on startup:', dbErr.message);
+    // In production, we might want to keep running and hope for recovery,
+    // or exit to let Render restart the instance.
+  }
+
   startCleanupTask();
   //cron job to prevent Render from going to sleep
 });

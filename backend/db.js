@@ -9,18 +9,35 @@ const normalizePgConnectionString = (value) => {
   return null;
 };
 
-const poolConfig = {
-  connectionString:
+const getSafeConnectionString = () => {
+  let connStr =
     normalizePgConnectionString(process.env.DATABASE_URL) ||
     normalizePgConnectionString(process.env.SUPABASE_DB_URL) ||
     normalizePgConnectionString(process.env.SUPABASE_URL) ||
-    `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`,
-  ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false }, //default to SSL for Supabase, only disable if strictly 'false'
-  max: 40,//max pool size -- current pooled connections
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
-  keepAlive: true,
+    `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`;
+
+  if (connStr && (connStr.includes('supabase.com') || connStr.includes('render.com'))) {
+    if (!connStr.includes('sslmode=')) {
+      connStr += (connStr.includes('?') ? '&' : '?') + 'sslmode=require';
+    }
+  }
+  return connStr;
 };
+
+const poolConfig = {
+  connectionString: getSafeConnectionString(),
+  ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false },
+  max: 10,
+  idleTimeoutMillis: 10000,
+  connectionTimeoutMillis: 10000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
+};
+
+if (process.env.NODE_ENV === 'production') {
+    const masked = poolConfig.connectionString.replace(/:([^@]+)@/, ':****@');
+    console.log('[DB] Using Connection String:', masked);
+}
 
 const pool = new Pool(poolConfig);
 
