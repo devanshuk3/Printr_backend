@@ -16,28 +16,43 @@ const getSafeConnectionString = () => {
             normalizePgConnectionString(process.env.SUPABASE_URL) ||
             `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`;
   
-  if (url && url.includes('?')) {
-    const [base, query] = url.split('?');
-    const params = new URLSearchParams(query);
-    params.delete('ssl');
-    params.delete('sslmode');
-    // For Render/Supabase, adding these can sometimes help with poolers
-    // but we'll stick to a clean URL and rely on the config object
-    const newQuery = params.toString();
-    url = newQuery ? `${base}?${newQuery}` : base;
+  if (url) {
+    // Render specific transformation: Convert external URL to internal if we're on Render
+    // External: dpg-xxx-a.singapore-postgres.render.com
+    // Internal: dpg-xxx (reachable on port 5432)
+    if (process.env.RENDER && url.includes('.render.com') && url.includes('-a.')) {
+        console.log('[DB] Render environment detected. Attempting to transform External URL to Internal...');
+        url = url.replace('-a.singapore-postgres.render.com', '');
+        url = url.replace('-a.oregon-postgres.render.com', '');
+        url = url.replace('-a.frankfurt-postgres.render.com', '');
+        url = url.replace('-a.ohio-postgres.render.com', '');
+        // Strip query params as well for internal
+        if (url.includes('?')) url = url.split('?')[0];
+    }
+
+    if (url.includes('?')) {
+      const [base, query] = url.split('?');
+      const params = new URLSearchParams(query);
+      params.delete('ssl');
+      params.delete('sslmode');
+      const newQuery = params.toString();
+      url = newQuery ? `${base}?${newQuery}` : base;
+    }
   }
   return url;
 };
 
+const isInternal = (url) => {
+    return url && !url.includes('.render.com') && !url.includes('.supabase.co');
+};
+
 const poolConfig = {
   connectionString: getSafeConnectionString(),
-  ssl: { 
-    rejectUnauthorized: false
-  },
+  ssl: isInternal(getSafeConnectionString()) ? false : { rejectUnauthorized: false },
   max: 10,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 30000, // Increased timeout
-  statement_timeout: 60000, // 60s statement timeout
+  connectionTimeoutMillis: 30000,
+  statement_timeout: 60000,
 };
 
 // If the URL looks internal (no -a. and no singapore-... suffix), we might not need SSL
