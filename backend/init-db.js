@@ -96,17 +96,21 @@ const initDb = async () => {
     let connectionRetries = 5;
     while (connectionRetries > 0) {
       try {
+        console.log(`[Init] Connection attempt ${6 - connectionRetries}/5...`);
         client = await db.pool.connect();
         console.log('[Init] Database connection established successfully.');
         break;
       } catch (connErr) {
         connectionRetries--;
-        console.warn(`[Init] Failed to connect to database (${connectionRetries} retries left):`, connErr.message);
+        console.error(`[Init] Connection failed: ${connErr.message}`);
+        console.error(`[Init] Error Details: Code=${connErr.code}, Routine=${connErr.routine}`);
+        
         if (connectionRetries === 0) {
-          console.error('[Init] Fatal: Could not establish initial database connection.');
+          console.error('[Init] Fatal: Could not establish initial database connection after 5 attempts.');
           process.exit(1);
         }
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        console.log(`[Init] Retrying in 10s... (${connectionRetries} left)`);
+        await new Promise(resolve => setTimeout(resolve, 10000));
       }
     }
 
