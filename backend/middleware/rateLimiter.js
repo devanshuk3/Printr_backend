@@ -1,12 +1,13 @@
-const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
+const { rateLimit } = require('express-rate-limit');
 
 /**
  * Key generator that prioritizes User ID for authenticated sessions,
  * falls back to normalized IP via ipKeyGenerator for IPv6 safety
  */
 const userKeyGenerator = (req) => {
-  if (req.user) return `user_${req.user.id}`;
-  return ipKeyGenerator(req);
+  if (req.user && req.user.id) return `user_${req.user.id}`;
+  // Fallback to IP address
+  return req.headers['x-forwarded-for'] || req.connection?.remoteAddress || req.ip || 'unknown_ip';
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -30,7 +31,7 @@ const globalLimiter = rateLimit({
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,       // 15 minutes
   max: 20,                         // 10 attempts per window
-  keyGenerator: ipKeyGenerator,
+  keyGenerator: (req) => req.headers['x-forwarded-for'] || req.connection?.remoteAddress || req.ip || 'unknown_ip',
   message: { message: "Too many authentication attempts. Please try again in 15 minutes." },
   standardHeaders: true,
   legacyHeaders: false,
@@ -105,7 +106,7 @@ const destructiveLimiter = rateLimit({
 const healthLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,        // 1 minute
   max: 20,                         // 20 per minute — enough for monitoring tools
-  keyGenerator: ipKeyGenerator,
+  keyGenerator: (req) => req.headers['x-forwarded-for'] || req.connection?.remoteAddress || req.ip || 'unknown_ip',
   message: { message: "Health check rate limit exceeded." },
   standardHeaders: true,
   legacyHeaders: false,

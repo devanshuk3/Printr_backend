@@ -62,10 +62,10 @@ router.post('/orders/batch', [auth, validateBody(orderBatchSchema)], async (req,
       for (const file of files) {
         const orderRes = await client.query(
           'INSERT INTO orders (user_id, vendor_id, status, page_count, total_amount, is_color, payment_method, payment_status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id',
-          [req.user.id, sanitizedVendorId, 'uploading', file.pageCount || 1, file.totalAmount || 0, file.isColor || false, paymentMethod || 'Online', paymentStatus || 'pending']
+          [req.user.id, sanitizedVendorId, 'pending', file.pageCount || 1, file.totalAmount || 0, file.isColor || false, paymentMethod || 'Online', paymentStatus || 'pending']
         );
         const id = orderRes.rows[0].id;
-        logStatusChange(id, 'none', 'uploading');
+        logStatusChange(id, 'none', 'pending');
         ids.push(id);
       }
       return ids;
@@ -359,7 +359,7 @@ router.post('/orders/:id/confirm-upload', [auth], async (req, res) => {
       return res.json({ success: true, message: "Order already confirmed" });
     }
 
-    if (status !== 'uploading') {
+    if (status !== 'uploading' && status !== 'pending') {
       return res.status(400).json({ message: `Order cannot be confirmed from its current status: ${status}` });
     }
 
@@ -686,7 +686,7 @@ router.get('/files', [auth, queueLimiter, validateQuery(queueQuerySchema)], asyn
       LEFT JOIN uploaded_files f ON o.file_name = f.file_name
       WHERE o.vendor_id = $1 
         AND o.status NOT IN ('completed', 'rejected', 'uploading', 'failed')
-        AND o.file_name NOT LIKE '%.xml'
+        AND (o.file_name IS NULL OR o.file_name NOT LIKE '%.xml')
         ${cursor ? 'AND o.created_at < $4' : ''}
       ORDER BY o.created_at DESC
       LIMIT $2 OFFSET $3`,
