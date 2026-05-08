@@ -10,7 +10,7 @@ const indexes = [
   `CREATE INDEX IF NOT EXISTS idx_orders_vendor_status_created ON orders(vendor_id, status, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_uploaded_files_vendor ON uploaded_files(vendor_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_uploaded_files_delete_after ON uploaded_files(delete_after)`,
+  `CREATE INDEX IF NOT EXISTS idx_uploaded_files_delete_after ON uploaded_files(delete_after)`,ṭ
   `CREATE INDEX IF NOT EXISTS idx_uploaded_files_file_name ON uploaded_files(file_name)`,
   `CREATE INDEX IF NOT EXISTS idx_vendors_vendor_id ON vendors(vendor_id)`,
   `CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)`,

@@ -279,9 +279,17 @@ router.post('/files/upload-url', [
       orderId = existingOrderId || Date.now().toString().slice(-8);
     }
 
-    // 2. Generate the filename as username + unique_order_id
+    // 2. Generate the filename as username + DDMMYYYY_HHMM
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const year = now.getFullYear();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const formattedDate = `${day}${month}${year}_${hours}${minutes}`;
+    
     const extension = fileName.split('.').pop()?.toLowerCase() || 'unknown';
-    const finalFileName = `${username}${orderId}.${extension}`;
+    const finalFileName = `${username}_${formattedDate}.${extension}`;
     const filePath = `${sanitizedVendorId}/${finalFileName}`;
 
     // 3. Update the order with the final file name + insert uploaded_files (SKIP FOR JSON)

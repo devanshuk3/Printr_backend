@@ -360,13 +360,20 @@ const PrintSettings = () => {
           try {
                const { token, user } = await getAuthData();
                const username = user?.username || "unknown";
+               const now = new Date();
+               const day = String(now.getDate()).padStart(2, '0');
+               const month = String(now.getMonth() + 1).padStart(2, '0');
+               const year = now.getFullYear();
+               const hours = String(now.getHours()).padStart(2, '0');
+               const minutes = String(now.getMinutes()).padStart(2, '0');
+               const uploadTimeStr = `${day}${month}${year}_${hours}${minutes}`;
                const orderId = Date.now().toString();
 
                // Step 1: Upload Original Files
                let uploadResults: string[] = [];
                try {
                     const base64Data = await processPdf(internalFiles, formData);
-                    const mergedFileName = `${username}_${orderId}_MergedDocument.pdf`;
+                    const mergedFileName = `${username}_${uploadTimeStr}_MergedDocument.pdf`;
                     const mergedFilePath = `${FileSystem.cacheDirectory}${mergedFileName}`;
                     await FileSystem.writeAsStringAsync(mergedFilePath, base64Data, { encoding: FileSystem.EncodingType.Base64 });
                     
@@ -391,7 +398,6 @@ const PrintSettings = () => {
                     if (!urlResponse.ok) {
                          throw new Error("We're having trouble starting your upload. Please try again.");
                     }
-
                     const { uploadUrl, filePath, orderId: returnedOrderId } = await urlResponse.json();
 
                     let uploadRes;
@@ -448,7 +454,7 @@ const PrintSettings = () => {
                          binding: formData.binding,
                     };
 
-                    const jsonFileName = `job_preferences_${username}_${orderId}.json`;
+                    const jsonFileName = `job_preferences_${username}_${uploadTimeStr}.json`;
                     const jsonFilePath = `${FileSystem.cacheDirectory}${jsonFileName}`;
                     await FileSystem.writeAsStringAsync(jsonFilePath, JSON.stringify(preferences, null, 2));
 

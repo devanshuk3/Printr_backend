@@ -102,19 +102,22 @@ router.post('/calculate', [
       effectivePages = parsePageRange(customRange, totalPages);
     }
 
-    // 4. Determine the price per page from the vendor's settings based on effectivePages
+    // Calculate total pages printed across all copies to determine tiered pricing
+    const totalPrintedPages = effectivePages * copies;
+
+    // 4. Determine the price per page from the vendor's settings based on totalPrintedPages
     let pricePerPage = 0;
     if (colorMode === 'Colored') {
-      if (effectivePages === 1 && parseFloat(vendor.color_price_single) > 0) pricePerPage = parseFloat(vendor.color_price_single);
-      else if (effectivePages >= 2 && effectivePages <= 5 && parseFloat(vendor.color_price_2_to_5) > 0) pricePerPage = parseFloat(vendor.color_price_2_to_5);
-      else if (effectivePages >= 6 && effectivePages <= 9 && parseFloat(vendor.color_price_6_to_9) > 0) pricePerPage = parseFloat(vendor.color_price_6_to_9);
-      else if (effectivePages >= 10 && parseFloat(vendor.color_price_10_plus) > 0) pricePerPage = parseFloat(vendor.color_price_10_plus);
+      if (totalPrintedPages === 1 && parseFloat(vendor.color_price_single) > 0) pricePerPage = parseFloat(vendor.color_price_single);
+      else if (totalPrintedPages >= 2 && totalPrintedPages <= 5 && parseFloat(vendor.color_price_2_to_5) > 0) pricePerPage = parseFloat(vendor.color_price_2_to_5);
+      else if (totalPrintedPages >= 6 && totalPrintedPages <= 9 && parseFloat(vendor.color_price_6_to_9) > 0) pricePerPage = parseFloat(vendor.color_price_6_to_9);
+      else if (totalPrintedPages >= 10 && parseFloat(vendor.color_price_10_plus) > 0) pricePerPage = parseFloat(vendor.color_price_10_plus);
       else pricePerPage = parseFloat(vendor.color_price) || 0;
     } else {
-      if (effectivePages === 1 && parseFloat(vendor.bw_price_single) > 0) pricePerPage = parseFloat(vendor.bw_price_single);
-      else if (effectivePages >= 2 && effectivePages <= 5 && parseFloat(vendor.bw_price_2_to_5) > 0) pricePerPage = parseFloat(vendor.bw_price_2_to_5);
-      else if (effectivePages >= 6 && effectivePages <= 9 && parseFloat(vendor.bw_price_6_to_9) > 0) pricePerPage = parseFloat(vendor.bw_price_6_to_9);
-      else if (effectivePages >= 10 && parseFloat(vendor.bw_price_10_plus) > 0) pricePerPage = parseFloat(vendor.bw_price_10_plus);
+      if (totalPrintedPages === 1 && parseFloat(vendor.bw_price_single) > 0) pricePerPage = parseFloat(vendor.bw_price_single);
+      else if (totalPrintedPages >= 2 && totalPrintedPages <= 5 && parseFloat(vendor.bw_price_2_to_5) > 0) pricePerPage = parseFloat(vendor.bw_price_2_to_5);
+      else if (totalPrintedPages >= 6 && totalPrintedPages <= 9 && parseFloat(vendor.bw_price_6_to_9) > 0) pricePerPage = parseFloat(vendor.bw_price_6_to_9);
+      else if (totalPrintedPages >= 10 && parseFloat(vendor.bw_price_10_plus) > 0) pricePerPage = parseFloat(vendor.bw_price_10_plus);
       else pricePerPage = parseFloat(vendor.bw_price) || 0;
     }
 
