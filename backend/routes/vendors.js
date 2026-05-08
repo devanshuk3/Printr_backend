@@ -881,9 +881,12 @@ router.patch('/orders/:id', [
     if (updates.length === 0) return res.status(400).json({ message: "No fields to update" });
     
     values.push(id);
-    const query = `UPDATE orders SET ${updates.join(', ')} WHERE id = $${paramCounter}`;
+    const query = `UPDATE orders SET ${updates.join(', ')} WHERE id = $${paramCounter} RETURNING vendor_id`;
     
-    await db.query(query, values);
+    const result = await db.query(query, values);
+    if (result.rows.length > 0) {
+      invalidateCache(result.rows[0].vendor_id);
+    }
     res.json({ success: true, message: "Order updated successfully" });
   } catch (err) {
     handleError(res, err, "Updating order details failed");
