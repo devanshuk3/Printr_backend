@@ -88,9 +88,6 @@ const initDb = async () => {
     );
   `;
 
-const initDb = async () => {
-  // ... table queries defined above ...
-
   let client;
   try {
     console.log('--- STARTING CONSOLIDATED DATABASE INITIALIZATION ---');
@@ -229,7 +226,6 @@ const initDb = async () => {
            }
         } else if (!err.message.includes('already exists') && !err.message.includes('duplicate')) {
            // Ignore common "already exists" errors, but log others
-           // console.warn(`[Init] Migration skip/error: ${err.message}`);
         }
       }
     }
