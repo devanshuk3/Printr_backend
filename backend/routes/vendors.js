@@ -52,7 +52,7 @@ const logStatusChange = (orderId, fromStatus, toStatus) => {
  * @endpoint Initialize a batch of orders before payment/upload
  */
 router.post('/orders/batch', [auth, validateBody(orderBatchSchema)], async (req, res) => {
-  const { vendorId, files } = req.body;
+  const { vendorId, files, paymentMethod, paymentStatus } = req.body;
 
   try {
     const sanitizedVendorId = vendorId.trim().toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
@@ -61,8 +61,8 @@ router.post('/orders/batch', [auth, validateBody(orderBatchSchema)], async (req,
       const ids = [];
       for (const file of files) {
         const orderRes = await client.query(
-          'INSERT INTO orders (user_id, vendor_id, status, page_count, total_amount, is_color) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-          [req.user.id, sanitizedVendorId, 'uploading', file.pageCount || 1, file.totalAmount || 0, file.isColor || false]
+          'INSERT INTO orders (user_id, vendor_id, status, page_count, total_amount, is_color, payment_method, payment_status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id',
+          [req.user.id, sanitizedVendorId, 'uploading', file.pageCount || 1, file.totalAmount || 0, file.isColor || false, paymentMethod || 'Online', paymentStatus || 'pending']
         );
         const id = orderRes.rows[0].id;
         logStatusChange(id, 'none', 'uploading');
@@ -677,6 +677,8 @@ router.get('/files', [auth, queueLimiter, validateQuery(queueQuerySchema)], asyn
         o.page_count,
         o.is_color,
         o.total_amount,
+        o.payment_method,
+        o.payment_status,
         u.full_name as sender_name,
         f.object_key as file_key
       FROM orders o
@@ -848,7 +850,7 @@ router.patch('/orders/:id', [
   validateBody(patchOrderSchema)
 ], async (req, res) => {
   const { id } = req.params;
-  const { total_amount, is_color, page_count } = req.body;
+  const { total_amount, is_color, page_count, payment_method, payment_status } = req.body;
   
   try {
     const updates = [];
@@ -866,6 +868,14 @@ router.patch('/orders/:id', [
     if (page_count !== undefined) {
       updates.push(`page_count = $${paramCounter++}`);
       values.push(page_count);
+    }
+    if (payment_method !== undefined) {
+      updates.push(`payment_method = $${paramCounter++}`);
+      values.push(payment_method);
+    }
+    if (payment_status !== undefined) {
+      updates.push(`payment_status = $${paramCounter++}`);
+      values.push(payment_status);
     }
     
     if (updates.length === 0) return res.status(400).json({ message: "No fields to update" });

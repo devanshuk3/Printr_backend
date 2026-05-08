@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { sharedFullName, setSharedFullName } from "../../utils/sharedState";
 import { countFilePages } from '../../utils/pageCounter';
 import {
@@ -53,6 +53,13 @@ export default function HomePage() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [totalPages, setTotalPages] = useState<number>(0);
   const [isUploading, setIsUploading] = useState(false);
+  const isPicking = useRef(false);
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => { isMounted.current = false; };
+  }, []);
 
   // Profile State
   const params = useLocalSearchParams();
@@ -149,8 +156,8 @@ export default function HomePage() {
           }
         });
 
-        // Limit to 50 items for storage, but display 4 locally
-        const truncatedHistory = mergedHistory.slice(0, 50);
+        // Limit to 10 items for storage, but display 4 locally
+        const truncatedHistory = mergedHistory.slice(0, 10);
         setHistory(truncatedHistory.slice(0, 4));
         await saveLocalHistory(truncatedHistory);
       }
@@ -335,6 +342,11 @@ export default function HomePage() {
   };
 
   const handleUpload = async () => {
+    if (isPicking.current || isUploading) return;
+    
+    isPicking.current = true;
+    setIsUploading(true);
+    
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: [
@@ -371,7 +383,8 @@ export default function HomePage() {
           return;
         }
 
-        setIsUploading(true);
+          isPicking.current = false; // We can allow another pick after the first one is selected
+          // No need to set isUploading(true) here anymore as we did it at the start
         const newFilesList = await Promise.all(filteredAssets.map(async (asset) => {
           let fileName = asset.name;
           let fileUri = asset.uri;
@@ -405,17 +418,22 @@ export default function HomePage() {
         const pages = await calculatePageCount(updatedFiles);
         setTotalPages(pages);
 
-        if (filteredAssets.length < result.assets.length) {
-          Alert.alert("Notice", `Some files were excluded. Only PDF, Images, Word, PPT, and Excel are allowed.`);
-        } else {
-          Alert.alert("Success", `${newFilesList.length} file(s) added successfully.`);
+        if (isMounted.current) {
+          if (filteredAssets.length < result.assets.length) {
+            Alert.alert("Notice", `Some files were excluded. Only PDF, Images, Word, PPT, and Excel are allowed.`);
+          } else {
+            Alert.alert("Success", `${newFilesList.length} file(s) added successfully.`);
+          }
         }
       }
     } catch (err) {
       console.error("Error picking/storing document:", err);
-      Alert.alert("Error", "Something went wrong while selecting your files. Please try again.");
+      if (isMounted.current) {
+        Alert.alert("Error", "Something went wrong while selecting your files. Please try again.");
+      }
     } finally {
       setIsUploading(false);
+      isPicking.current = false;
     }
   };
 
@@ -698,7 +716,8 @@ export default function HomePage() {
 
                 // Persist to SecureStore so it survives navigations and restarts
                 if (normalizedText.trim()) {
-                  SecureStore.setItemAsync('saved_vendor_id', normalizedText.trim()).catch(() => { });
+                  const truncatedId = normalizedText.trim().substring(0, 100);
+                  SecureStore.setItemAsync('saved_vendor_id', truncatedId).catch(() => { });
                 } else {
                   SecureStore.deleteItemAsync('saved_vendor_id').catch(() => { });
                 }
@@ -819,9 +838,10 @@ export default function HomePage() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.saveButton, (!hasUploaded || !verifiedVendor) && { opacity: 0.5 }]}
+              style={[styles.saveButton, (!hasUploaded || !verifiedVendor || isUploading) && { opacity: 0.5 }]}
               activeOpacity={0.85}
               onPress={handleSave}
+              disabled={isUploading || !hasUploaded || !verifiedVendor}
             >
               <Text style={styles.saveButtonText}>Save</Text>
             </TouchableOpacity>

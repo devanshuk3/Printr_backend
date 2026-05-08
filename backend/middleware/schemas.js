@@ -155,6 +155,8 @@ const uploadUrlSchema = z.object({
 
 const orderBatchSchema = z.object({
   vendorId: vendorIdField,
+  paymentMethod: z.enum(['Online', 'Cash on Delivery']).optional().default('Online'),
+  paymentStatus: z.enum(['pending', 'completed']).optional().default('pending'),
   files: z.array(z.object({
     pageCount: positiveInt.optional().default(1),
     totalAmount: nonNegativeFloat.optional().default(0),
@@ -166,6 +168,8 @@ const patchOrderSchema = z.object({
   total_amount: nonNegativeFloat.optional(),
   is_color: z.boolean().optional(),
   page_count: positiveInt.optional(),
+  payment_method: z.enum(['Online', 'Cash on Delivery']).optional(),
+  payment_status: z.enum(['pending', 'completed']).optional(),
 }).refine(data => Object.keys(data).some(k => data[k] !== undefined), {
   message: 'At least one field to update is required',
 });

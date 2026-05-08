@@ -226,6 +226,14 @@ const PrintSettings = () => {
      const [upiError, setUpiError] = useState<string | null>(null);
      const [allocatedOrderIds, setAllocatedOrderIds] = useState<number[]>([]);
      const [currentUserUsername, setCurrentUserUsername] = useState<string>("User");
+     const [paymentMethod, setPaymentMethod] = useState<'Online' | 'Cash on Delivery'>('Online');
+     const [priceBreakdown, setPriceBreakdown] = useState<{
+          effectivePages: number;
+          sheetsPerCopy: number;
+          pricePerPage: number;
+          bindingCost: number;
+          copies: number;
+     } | null>(null);
 
      useEffect(() => {
           const calculateTotalPages = async () => {
@@ -684,6 +692,13 @@ const PrintSettings = () => {
                const finalAmount = priceData.totalAmount.toFixed(2);
                setTotalCost(priceData.totalAmount);
                setPendingAmount(finalAmount);
+               setPriceBreakdown({
+                    effectivePages: priceData.effectivePages,
+                    sheetsPerCopy: priceData.sheetsPerCopy,
+                    pricePerPage: priceData.pricePerPage,
+                    bindingCost: priceData.bindingCost,
+                    copies: copies
+               });
 
                // Pre-allocate Order IDs from backend to include in UPI note
                const batchResponse = await fetch(`${API_URL}/vendors/orders/batch`, {
@@ -694,6 +709,8 @@ const PrintSettings = () => {
                     },
                     body: JSON.stringify({
                          vendorId,
+                         paymentMethod: 'Online',
+                         paymentStatus: 'pending',
                          files: [{
                               pageCount: totalPages || 1,
                               totalAmount: priceData.totalAmount,
@@ -918,66 +935,140 @@ const PrintSettings = () => {
                     <View style={styles.modalOverlay}>
                          <View style={styles.modalContent}>
                               <View style={styles.modalHeader}>
-                                   <Text style={styles.modalTitle}>Complete Payment</Text>
+                                   <Text style={styles.modalTitle}>Order Confirmation</Text>
                                    <TouchableOpacity onPress={() => setShowPaymentModal(false)}>
                                         <X size={24} color="#2e3563" />
                                    </TouchableOpacity>
                               </View>
 
+                              <View style={styles.paymentMethodSelector}>
+                                   <TouchableOpacity 
+                                        style={[styles.methodBtn, paymentMethod === 'Online' && styles.methodBtnActive]}
+                                        onPress={async () => {
+                                             setPaymentMethod('Online');
+                                             // Sync with backend
+                                             const { token } = await getAuthData();
+                                             for (const id of allocatedOrderIds) {
+                                                  await fetch(`${API_URL}/vendors/orders/${id}`, {
+                                                       method: 'PATCH',
+                                                       headers: { 'Content-Type': 'application/json', 'x-auth-token': token || '' },
+                                                       body: JSON.stringify({ payment_method: 'Online', payment_status: 'pending' })
+                                                  });
+                                             }
+                                        }}
+                                   >
+                                        <Smartphone size={20} color={paymentMethod === 'Online' ? '#ffffff' : '#64748b'} />
+                                        <Text style={[styles.methodBtnText, paymentMethod === 'Online' && styles.methodBtnTextActive]}>Online Pay</Text>
+                                   </TouchableOpacity>
+                                   <TouchableOpacity 
+                                        style={[styles.methodBtn, paymentMethod === 'Cash on Delivery' && styles.methodBtnActive]}
+                                        onPress={async () => {
+                                             setPaymentMethod('Cash on Delivery');
+                                             // Sync with backend
+                                             const { token } = await getAuthData();
+                                             for (const id of allocatedOrderIds) {
+                                                  await fetch(`${API_URL}/vendors/orders/${id}`, {
+                                                       method: 'PATCH',
+                                                       headers: { 'Content-Type': 'application/json', 'x-auth-token': token || '' },
+                                                       body: JSON.stringify({ payment_method: 'Cash on Delivery', payment_status: 'pending' })
+                                                  });
+                                             }
+                                        }}
+                                   >
+                                        <Check size={20} color={paymentMethod === 'Cash on Delivery' ? '#ffffff' : '#64748b'} />
+                                        <Text style={[styles.methodBtnText, paymentMethod === 'Cash on Delivery' && styles.methodBtnTextActive]}>Pay at Shop</Text>
+                                   </TouchableOpacity>
+                              </View>
+
                               <ScrollView contentContainerStyle={styles.modalScroll}>
-                                   <View style={styles.qrContainer}>
-                                        <QRCode
-                                             value={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(vendorName || "Merchant")}&am=${pendingAmount}&cu=INR&tn=${encodeURIComponent(allocatedOrderIds.length > 0 ? `Order#${allocatedOrderIds.join(',')}` : (currentUserUsername || "User"))}`}
-                                             size={220}
-                                             color="#2e3563"
-                                        />
-                                   </View>
-
-                                   <Text style={styles.hintText}>Scan this QR using any UPI app (GPay, PhonePe, Paytm)</Text>
-
-                                   <View style={styles.upiDirectContainer}>
-                                        <Text style={styles.upiGridTitle}>Pay via UPI App</Text>
-                                        {isFetchingVendor ? (
-                                             <View style={styles.upiLoadingBox}>
-                                                  <ActivityIndicator color="#1271dd" size="small" />
-                                                  <Text style={styles.upiLoadingText}>Preparing payment...</Text>
+                                   {paymentMethod === 'Online' && (
+                                        <>
+                                             <View style={styles.qrContainer}>
+                                                  <QRCode
+                                                       value={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(vendorName || "Merchant")}&am=${pendingAmount}&cu=INR&tn=${encodeURIComponent(allocatedOrderIds.length > 0 ? `Order#${allocatedOrderIds.join(',')}` : (currentUserUsername || "User"))}`}
+                                                       size={220}
+                                                       color="#2e3563"
+                                                  />
                                              </View>
-                                        ) : upiError ? (
-                                             <View style={styles.upiErrorBox}>
-                                                  <AlertCircle size={20} color="#ef4444" />
-                                                  <Text style={styles.upiErrorText}>{upiError}</Text>
-                                             </View>
-                                        ) : (
-                                             <TouchableOpacity
-                                                  style={[
-                                                       styles.upiDirectBtn,
-                                                       (parseFloat(pendingAmount) <= 0) && { opacity: 0.6 }
-                                                  ]}
-                                                  onPress={handleUPIPayment}
-                                                  disabled={parseFloat(pendingAmount) <= 0}
-                                             >
-                                                  <Smartphone size={20} color="#ffffff" />
-                                                  <Text style={styles.upiDirectBtnText}>Pay ₹{pendingAmount} via UPI</Text>
+                                             <Text style={styles.hintText}>Scan this QR using any UPI app (GPay, PhonePe, Paytm)</Text>
+                                        </>
+                                   )}
+
+                                   {paymentMethod === 'Online' && (
+                                        <View style={styles.upiDirectContainer}>
+                                             <Text style={styles.upiGridTitle}>Pay via UPI App</Text>
+                                             {isFetchingVendor ? (
+                                                  <View style={styles.upiLoadingBox}>
+                                                       <ActivityIndicator color="#1271dd" size="small" />
+                                                       <Text style={styles.upiLoadingText}>Preparing payment...</Text>
+                                                  </View>
+                                             ) : upiError ? (
+                                                  <View style={styles.upiErrorBox}>
+                                                       <AlertCircle size={20} color="#ef4444" />
+                                                       <Text style={styles.upiErrorText}>{upiError}</Text>
+                                                  </View>
+                                             ) : (
+                                                  <TouchableOpacity
+                                                       style={[
+                                                            styles.upiDirectBtn,
+                                                            (parseFloat(pendingAmount) <= 0) && { opacity: 0.6 }
+                                                       ]}
+                                                       onPress={handleUPIPayment}
+                                                       disabled={parseFloat(pendingAmount) <= 0}
+                                                  >
+                                                       <Smartphone size={20} color="#ffffff" />
+                                                       <Text style={styles.upiDirectBtnText}>Pay ₹{pendingAmount} via UPI</Text>
+                                                  </TouchableOpacity>
+                                             )}
+                                        </View>
+                                   )}
+
+                                   {paymentMethod === 'Online' && (
+                                        <View style={styles.manualEntryBox}>
+                                             <Text style={styles.manualLabel}>Or pay to UPI ID:</Text>
+                                             <TouchableOpacity style={styles.upiCopyBox} onPress={copyToClipboard}>
+                                                  <Text style={styles.upiIdDisplayText}>{upiId}</Text>
+                                                  {isCopied ? <Check size={18} color="#10b981" /> : <Copy size={18} color="#1271dd" />}
                                              </TouchableOpacity>
-                                        )}
-                                   </View>
-
-                                   <View style={styles.manualEntryBox}>
-                                        <Text style={styles.manualLabel}>Or pay to UPI ID:</Text>
-                                        <TouchableOpacity style={styles.upiCopyBox} onPress={copyToClipboard}>
-                                             <Text style={styles.upiIdDisplayText}>{upiId}</Text>
-                                             {isCopied ? <Check size={18} color="#10b981" /> : <Copy size={18} color="#1271dd" />}
-                                        </TouchableOpacity>
-                                   </View>
+                                        </View>
+                                   )}
 
                                    <View style={styles.paymentSummary}>
-                                        <View style={styles.summaryRow}>
-                                             <Text style={styles.summaryRowLabel}>Printing Cost:</Text>
-                                             <Text style={styles.summaryRowValue}>₹{totalCost.toFixed(2)}</Text>
+                                        <View style={styles.summaryTitleRow}>
+                                             <Text style={styles.summaryTitle}>Bill Breakdown</Text>
                                         </View>
+                                        
+                                        {priceBreakdown && (
+                                             <View style={styles.breakdownContainer}>
+                                                  <View style={styles.breakdownRow}>
+                                                       <Text style={styles.breakdownLabel}>Pages per copy:</Text>
+                                                       <Text style={styles.breakdownValue}>{priceBreakdown.effectivePages}</Text>
+                                                  </View>
+                                                  <View style={styles.breakdownRow}>
+                                                       <Text style={styles.breakdownLabel}>Sheets per copy ({formData.doubleSided === 'YES' ? 'Double-sided' : 'Single-sided'}):</Text>
+                                                       <Text style={styles.breakdownValue}>{priceBreakdown.sheetsPerCopy}</Text>
+                                                  </View>
+                                                  <View style={styles.breakdownRow}>
+                                                       <Text style={styles.breakdownLabel}>Price per sheet:</Text>
+                                                       <Text style={styles.breakdownValue}>₹{priceBreakdown.pricePerPage.toFixed(2)}</Text>
+                                                  </View>
+                                                  {priceBreakdown.bindingCost > 0 && (
+                                                       <View style={styles.breakdownRow}>
+                                                            <Text style={styles.breakdownLabel}>Binding Cost ({formData.binding}):</Text>
+                                                            <Text style={styles.breakdownValue}>₹{priceBreakdown.bindingCost.toFixed(2)}</Text>
+                                                       </View>
+                                                  )}
+                                                  <View style={styles.breakdownRow}>
+                                                       <Text style={styles.breakdownLabel}>Number of copies:</Text>
+                                                       <Text style={styles.breakdownValue}>x {priceBreakdown.copies}</Text>
+                                                  </View>
+                                                  <View style={styles.breakdownDivider} />
+                                             </View>
+                                        )}
+
                                         <View style={styles.summaryRow}>
                                              <Text style={styles.summaryRowLabel}>Total Amount:</Text>
-                                             <Text style={[styles.summaryRowValue, { color: '#1271dd', fontWeight: '800' }]}>₹{pendingAmount}</Text>
+                                             <Text style={[styles.summaryRowValue, { color: '#1271dd', fontWeight: '800', fontSize: 18 }]}>₹{pendingAmount}</Text>
                                         </View>
                                         <View style={styles.summaryRow}>
                                              <Text style={styles.summaryRowLabel}>Note:</Text>
@@ -990,18 +1081,22 @@ const PrintSettings = () => {
                                              * Printing will only be done when the payment is verified by the vendor
                                         </Text>
                                    </View>
-
                                    <TouchableOpacity
-                                        style={[styles.confirmPaymentBtn, isUploading && { opacity: 0.7 }]}
+                                        style={[styles.confirmPaymentBtn, isUploading && { opacity: 0.7 }, paymentMethod === 'Cash on Delivery' && { backgroundColor: '#1271dd', shadowColor: '#1271dd' }]}
                                         disabled={isUploading}
                                          onPress={() => {
+                                              const title = paymentMethod === 'Online' ? "Confirm Payment" : "Confirm Order";
+                                              const message = paymentMethod === 'Online' 
+                                                  ? "Note: Your order will be rejected if payment is not completed. Please also ensure your document formatting is correct."
+                                                  : "Your order will be sent to the vendor. You can pay at the shop when you collect your prints.";
+
                                               Alert.alert(
-                                                   "Confirm Payment",
-                                                       "Note: Your order will be rejected if payment is not completed. Please also ensure your document formatting is correct, as minor variations may occur during printing.",
+                                                   title,
+                                                   message,
                                                    [
                                                         { text: "Cancel", style: "cancel" },
                                                         { 
-                                                             text: "Yes, I have paid", 
+                                                             text: paymentMethod === 'Online' ? "Yes, I have paid" : "Confirm Order", 
                                                              onPress: async () => {
                                                                   try {
                                                                        await performUpload();
@@ -1009,7 +1104,7 @@ const PrintSettings = () => {
                                                                        await completePrintJob();
                                                                        handleSuccess();
                                                                   } catch (err: any) {
-                                                                       Alert.alert("Upload Failed", "We couldn't send your files to the vendor. Please check your internet connection and try again.");
+                                                                       Alert.alert("Upload Failed", "We couldn't send your files to the vendor. Please check your internet connection.");
                                                                   }
                                                              } 
                                                         }
@@ -1020,7 +1115,9 @@ const PrintSettings = () => {
                                         {isUploading ? (
                                              <ActivityIndicator color="#ffffff" size="small" />
                                         ) : (
-                                             <Text style={styles.confirmPaymentText}>I HAVE PAID</Text>
+                                             <Text style={styles.confirmPaymentText}>
+                                                  {paymentMethod === 'Online' ? 'I HAVE PAID' : 'CONFIRM COD ORDER'}
+                                             </Text>
                                         )}
                                    </TouchableOpacity>
 
@@ -1460,6 +1557,75 @@ const styles = StyleSheet.create({
           fontSize: 14,
           color: '#ef4444',
           fontWeight: '600',
+     },
+     summaryTitleRow: {
+          borderBottomWidth: 1,
+          borderBottomColor: '#e2e8f0',
+          paddingBottom: 10,
+          marginBottom: 15,
+     },
+     summaryTitle: {
+          fontSize: 16,
+          fontWeight: '800',
+          color: '#2e3563',
+          textTransform: 'uppercase',
+          letterSpacing: 0.5,
+     },
+     breakdownContainer: {
+          marginBottom: 10,
+     },
+     breakdownRow: {
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          marginBottom: 6,
+     },
+     breakdownLabel: {
+          fontSize: 13,
+          color: '#64748b',
+          fontWeight: '500',
+     },
+     breakdownValue: {
+          fontSize: 13,
+          color: '#475569',
+          fontWeight: '600',
+     },
+     breakdownDivider: {
+          height: 1,
+          backgroundColor: '#e2e8f0',
+          marginVertical: 12,
+     },
+     paymentMethodSelector: {
+          flexDirection: 'row',
+          paddingHorizontal: 24,
+          paddingVertical: 16,
+          gap: 12,
+          borderBottomWidth: 1,
+          borderBottomColor: '#f1f5f9',
+          backgroundColor: '#ffffff',
+     },
+     methodBtn: {
+          flex: 1,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          paddingVertical: 12,
+          borderRadius: 12,
+          borderWidth: 1.5,
+          borderColor: '#e2e8f0',
+          backgroundColor: '#f8fafc',
+     },
+     methodBtnActive: {
+          borderColor: '#1271dd',
+          backgroundColor: '#1271dd',
+     },
+     methodBtnText: {
+          fontSize: 14,
+          fontWeight: '700',
+          color: '#64748b',
+     },
+     methodBtnTextActive: {
+          color: '#ffffff',
      },
 });
 

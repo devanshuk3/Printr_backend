@@ -148,7 +148,8 @@ router.post('/calculate', [
       platformFee: parseFloat(platformFee.toFixed(2)),
       effectivePages,
       sheetsPerCopy,
-      pricePerPage: parseFloat(pricePerPage.toFixed(2))
+      pricePerPage: parseFloat(pricePerPage.toFixed(2)),
+      bindingCost: parseFloat(bindingCost.toFixed(2))
     });
 
   } catch (err) {
