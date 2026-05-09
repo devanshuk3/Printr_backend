@@ -17,7 +17,7 @@ const normalizePgConnectionString = (value) => {
 
 const connectionString =
   normalizePgConnectionString(process.env.DATABASE_URL) ||
-  normalizePgConnectionString(process.env.SUPABASE_DB_URL);
+  normalizePgConnectionString(process.env.SUPABASE_URL);
 
 if (!connectionString) {
   throw new Error('No PostgreSQL connection string found');
