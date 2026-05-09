@@ -1,138 +1,280 @@
-const { rateLimit } = require('express-rate-limit');
+const rateLimit = require('express-rate-limit');
+const slowDown = require('express-slow-down');
 
 /**
- * Key generator that prioritizes User ID for authenticated sessions,
- * falls back to normalized IP via ipKeyGenerator for IPv6 safety
+ * IMPORTANT:
+ * In your main server file add:
+ *
+ * app.set('trust proxy', 1);
+ *
+ * BEFORE applying rate limiters.
+ *
+ * Otherwise req.ip may fail correctly on Render/Reverse proxies.
  */
-const userKeyGenerator = (req) => {
-  if (req.user && req.user.id) return `user_${req.user.id}`;
-  // Fallback to IP address
-  return req.headers['x-forwarded-for'] || req.connection?.remoteAddress || req.ip || 'unknown_ip';
+
+// ─────────────────────────────────────────────────────────────
+// SAFE IP EXTRACTION
+// ─────────────────────────────────────────────────────────────
+
+const getClientIdentifier = (req) => {
+  // Prefer authenticated user
+  if (req.user?.id) {
+    return `user:${req.user.id}`;
+  }
+
+  // Safe IP from Express trust proxy
+  return `ip:${req.ip}`;
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 1. GLOBAL BASELINE — applied at the app level to every request.
-//    Acts as a safety net; individual route limiters override with tighter caps.
-// ─────────────────────────────────────────────────────────────────────────────
-const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,       // 15 minutes
-  max: 300,                        // 300 requests per window per identity
-  keyGenerator: userKeyGenerator,
-  message: { message: "Too many requests from this source. Please try again later." },
-  standardHeaders: true,           // Return rate-limit info via standard headers (RateLimit-*)
+// Hybrid key for sensitive routes
+const hybridKeyGenerator = (req) => {
+  const ip = req.ip || 'unknown';
+
+  if (req.user?.id) {
+    return `user:${req.user.id}:ip:${ip}`;
+  }
+
+  return `ip:${ip}`;
+};
+
+// ─────────────────────────────────────────────────────────────
+// COMMON CONFIG
+// ─────────────────────────────────────────────────────────────
+
+const commonConfig = {
+  standardHeaders: true,
   legacyHeaders: false,
+  validate: {
+    trustProxy: false,
+  },
+};
+
+// ─────────────────────────────────────────────────────────────
+// GLOBAL SAFETY NET
+// Applies everywhere
+// ─────────────────────────────────────────────────────────────
+
+const globalLimiter = rateLimit({
+  ...commonConfig,
+  windowMs: 15 * 60 * 1000,
+  max: 350,
+  keyGenerator: getClientIdentifier,
+
+  message: {
+    message: 'Too many requests. Please slow down.',
+  },
+
+  skip: (req) => {
+    // Skip health checks globally
+    return req.path === '/health';
+  },
+});
+
+// ─────────────────────────────────────────────────────────────
+// AUTH LIMITER
+// STRICT because internet is hostile
+// ─────────────────────────────────────────────────────────────
+
+const authLimiter = rateLimit({
+  ...commonConfig,
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+
+  keyGenerator: (req) => `ip:${req.ip}`,
+
+  message: {
+    message:
+      'Too many authentication attempts. Please try again later.',
+  },
+
   skipSuccessfulRequests: false,
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 2. AUTH STRICT — login, register, OTP, Google auth.
-//    Keyed by IP only because these are hit before authentication.
-// ─────────────────────────────────────────────────────────────────────────────
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,       // 15 minutes
-  max: 20,                         // 10 attempts per window
-  keyGenerator: (req) => req.headers['x-forwarded-for'] || req.connection?.remoteAddress || req.ip || 'unknown_ip',
-  message: { message: "Too many authentication attempts. Please try again in 15 minutes." },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+// ─────────────────────────────────────────────────────────────
+// OTP SEND LIMITER
+// VERY IMPORTANT
+// ─────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 3. GENERAL — standard authenticated API endpoints (read-heavy).
-// ─────────────────────────────────────────────────────────────────────────────
-const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,       // 15 minutes
-  max: 500,
-  keyGenerator: userKeyGenerator,
-  message: { message: "Too many requests, please try again later." },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 4. UPLOAD — file upload related endpoints (prevents R2/DB spam).
-// ─────────────────────────────────────────────────────────────────────────────
-const uploadLimiter = rateLimit({
+const otpLimiter = rateLimit({
+  ...commonConfig,
   windowMs: 15 * 60 * 1000,
-  max: 150,
-  keyGenerator: userKeyGenerator,
-  message: { message: "Slow down! You've initiated too many uploads. Please wait 15 minutes." },
-  standardHeaders: true,
-  legacyHeaders: false,
+  max: 5,
+
+  keyGenerator: (req) => {
+    const email = req.body?.email || 'unknown';
+    return `otp:${email}:${req.ip}`;
+  },
+
+  message: {
+    message:
+      'Too many OTP requests. Please wait before requesting again.',
+  },
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 5. QUEUE POLLING — dashboard queue refresh (high frequency but bounded).
-// ─────────────────────────────────────────────────────────────────────────────
-const queueLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000,        // 1 minute
-  max: 60,
-  keyGenerator: userKeyGenerator,
-  message: { message: "Queue refresh limit exceeded. Please wait a minute." },
-  standardHeaders: true,
-  legacyHeaders: false,
+// ─────────────────────────────────────────────────────────────
+// GENERAL API LIMITER
+// Read-heavy routes
+// ─────────────────────────────────────────────────────────────
+
+const generalLimiter = rateLimit({
+  ...commonConfig,
+  windowMs: 15 * 60 * 1000,
+  max: 600,
+
+  keyGenerator: getClientIdentifier,
+
+  message: {
+    message: 'API rate limit exceeded.',
+  },
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 6. SENSITIVE MUTATION — settings updates, username changes, order patches.
-//    Tighter than general to prevent rapid-fire mutations.
-// ─────────────────────────────────────────────────────────────────────────────
-const sensitiveLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,       // 15 minutes
-  max: 30,                         // 30 mutations per window
-  keyGenerator: userKeyGenerator,
-  message: { message: "Too many update requests. Please slow down." },
-  standardHeaders: true,
-  legacyHeaders: false,
+// ─────────────────────────────────────────────────────────────
+// VENDOR DASHBOARD LIMITER
+// Separate because dashboards poll frequently
+// This likely fixes your vendor dashboard issue
+// ─────────────────────────────────────────────────────────────
+
+const vendorDashboardLimiter = rateLimit({
+  ...commonConfig,
+  windowMs: 1 * 60 * 1000,
+
+  // generous enough for polling
+  max: 180,
+
+  keyGenerator: hybridKeyGenerator,
+
+  message: {
+    message:
+      'Dashboard refresh rate too high. Please slow down.',
+  },
+
+  // successful GETs should not punish vendors too aggressively
+  skipFailedRequests: false,
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 7. DESTRUCTIVE — account deletion, order cancellation/deletion.
-//    Very tight to prevent accidental or malicious mass deletions.
-// ─────────────────────────────────────────────────────────────────────────────
-const destructiveLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,       // 15 minutes
-  max: 15,                         // 15 destructive actions per window
-  keyGenerator: userKeyGenerator,
-  message: { message: "Too many destructive actions. Please wait before trying again." },
-  standardHeaders: true,
-  legacyHeaders: false,
+// ─────────────────────────────────────────────────────────────
+// UPLOAD LIMITER
+// R2 protection
+// ─────────────────────────────────────────────────────────────
+
+const uploadLimiter = rateLimit({
+  ...commonConfig,
+  windowMs: 10 * 60 * 1000,
+
+  // realistic production-safe limit
+  max: 35,
+
+  keyGenerator: hybridKeyGenerator,
+
+  message: {
+    message:
+      'Too many uploads initiated. Please wait a few minutes.',
+  },
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 8. HEALTH / SYSTEM — public health checks and admin system endpoints.
-//    Prevents probing and DoS on diagnostic endpoints.
-// ─────────────────────────────────────────────────────────────────────────────
-const healthLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000,        // 1 minute
-  max: 20,                         // 20 per minute — enough for monitoring tools
-  keyGenerator: (req) => req.headers['x-forwarded-for'] || req.connection?.remoteAddress || req.ip || 'unknown_ip',
-  message: { message: "Health check rate limit exceeded." },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+// ─────────────────────────────────────────────────────────────
+// DOWNLOAD/SIGNED URL LIMITER
+// Prevent scraping
+// ─────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 9. DOWNLOAD — signed URL generation for file downloads.
-//    Prevents mass scraping of signed URLs.
-// ─────────────────────────────────────────────────────────────────────────────
 const downloadLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,       // 15 minutes
-  max: 100,                        // 100 download URLs per window
-  keyGenerator: userKeyGenerator,
-  message: { message: "Too many download requests. Please slow down." },
-  standardHeaders: true,
-  legacyHeaders: false,
+  ...commonConfig,
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+
+  keyGenerator: hybridKeyGenerator,
+
+  message: {
+    message:
+      'Too many download requests. Please slow down.',
+  },
 });
+
+// ─────────────────────────────────────────────────────────────
+// SENSITIVE MUTATIONS
+// Settings/profile/order changes
+// ─────────────────────────────────────────────────────────────
+
+const sensitiveLimiter = rateLimit({
+  ...commonConfig,
+  windowMs: 15 * 60 * 1000,
+  max: 25,
+
+  keyGenerator: hybridKeyGenerator,
+
+  message: {
+    message:
+      'Too many update operations. Please slow down.',
+  },
+});
+
+// ─────────────────────────────────────────────────────────────
+// DESTRUCTIVE ACTIONS
+// Delete/cancel/remove
+// ─────────────────────────────────────────────────────────────
+
+const destructiveLimiter = rateLimit({
+  ...commonConfig,
+  windowMs: 15 * 60 * 1000,
+  max: 8,
+
+  keyGenerator: hybridKeyGenerator,
+
+  message: {
+    message:
+      'Too many destructive operations. Please wait.',
+  },
+});
+
+// ─────────────────────────────────────────────────────────────
+// HEALTH CHECK LIMITER
+// ─────────────────────────────────────────────────────────────
+
+const healthLimiter = rateLimit({
+  ...commonConfig,
+  windowMs: 1 * 60 * 1000,
+  max: 60,
+
+  keyGenerator: (req) => `ip:${req.ip}`,
+
+  message: {
+    message: 'Health endpoint rate limit exceeded.',
+  },
+});
+
+// ─────────────────────────────────────────────────────────────
+// SLOWDOWN MIDDLEWARE
+// Better UX than immediate blocking
+// ─────────────────────────────────────────────────────────────
+
+const apiSpeedLimiter = slowDown({
+  windowMs: 15 * 60 * 1000,
+
+  // allow burst traffic first
+  delayAfter: 150,
+
+  // gradual slowdown
+  delayMs: (hits) => hits * 75,
+
+  maxDelayMs: 3000,
+
+  keyGenerator: getClientIdentifier,
+});
+
+// ─────────────────────────────────────────────────────────────
+// EXPORTS
+// ─────────────────────────────────────────────────────────────
 
 module.exports = {
   globalLimiter,
   authLimiter,
+  otpLimiter,
   generalLimiter,
+  vendorDashboardLimiter,
   uploadLimiter,
-  queueLimiter,
+  downloadLimiter,
   sensitiveLimiter,
   destructiveLimiter,
   healthLimiter,
-  downloadLimiter,
+  apiSpeedLimiter,
 };

@@ -16,6 +16,7 @@ const requiredEnv = [
   'R2_ENDPOINT',
   'R2_BUCKET_NAME'
 ];
+
 //set of required variables from env
 
 const missing = requiredEnv.filter(k => !process.env[k]);
@@ -25,6 +26,8 @@ if (missing.length > 0) {
   if (process.env.NODE_ENV === 'production') process.exit(1);
 }
 //exit with a warnign if the env varibales are missing
+
+
 
 
 //module imports
@@ -38,31 +41,53 @@ const { startCleanupTask, cleanupOldFiles, cleanupDatabaseHistory, cleanupComple
 const auth = require('./middleware/auth');
 const roleAuth = require('./middleware/roleAuth');
 const helmet = require('helmet');
-const { globalLimiter, healthLimiter, destructiveLimiter } = require('./middleware/rateLimiter');
+const { globalLimiter, healthLimiter, destructiveLimiter, apiSpeedLimiter } = require('./middleware/rateLimiter');
+
+
+
+
 
 const app = express();
-
+app.set('trust proxy', 1);
 //cors policy
-const allowedOrigins = [
-  'https://printr-backend.onrender.com',
+const allowedOrigins = new Set([
   'http://localhost:3000',
-  'http://127.0.0.1:3000'
-];
+  'http://127.0.0.1:3000',
+]);
 
 const corsOptions = {
-  origin: function (origin, callback) {
-    if (!origin || origin === 'null') {
+  origin: (origin, callback) => {
+    // Allow mobile apps, Postman, server requests
+    if (!origin) {
       return callback(null, true);
     }
-    const isLocalhost = origin.includes('localhost') || origin.includes('127.0.0.1');
-    if (isLocalhost || allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    return callback(new Error('Not allowed by CORS'));
-  },
-  credentials: true,
-};
 
+    // Exact origin match only
+    if (allowedOrigins.has(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
+
+  credentials: true,
+
+  methods: [
+    'GET',
+    'POST',
+    'PUT',
+    'PATCH',
+    'DELETE',
+    'OPTIONS',
+  ],
+
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+  ],
+
+  optionsSuccessStatus: 200,
+};
 // Middlewares
 app.use(helmet());
 app.use(cors(corsOptions));
@@ -77,18 +102,21 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '10mb' }));//rejects json oversized payloads
 app.use(express.urlencoded({ limit: '10mb', extended: true })); //limit url-encoded bodies
 
-// Global rate limiter removed to avoid blocking health, uploads, etc.
-// app.use(globalLimiter);
+//Health check endpoint
+app.get('/api/health', healthLimiter, (req, res) => {
+  res.status(200).json({ status: 'healthy', timestamp: new Date().toISOString() });
+});
+
+// Global rate limiter
+app.use(globalLimiter);
+app.use(apiSpeedLimiter);
 
 //Routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/vendors', require('./routes/vendors'));
 app.use('/api/payment', require('./routes/payment'));
 
-//Health check endpoint
-app.get('/api/health', healthLimiter, (req, res) => {
-  res.status(200).json({ status: 'healthy', timestamp: new Date().toISOString() });
-});
+
 
 //to manually trigger cleanup (protected Admin only)
 app.post('/api/system/cleanup', destructiveLimiter, auth, roleAuth(['admin']), async (req, res) => {
@@ -108,11 +136,19 @@ app.post('/api/system/cleanup', destructiveLimiter, auth, roleAuth(['admin']), a
 
 //error handling middleware
 app.use((err, req, res, next) => {
-  console.error('[Error Stack]', err.stack);
-  res.status(err.status || 500).json({
-    message: process.env.NODE_ENV === 'production'
-      ? "An unexpected error occurred"
-      : err.message
+  const status = err.status || 500;
+
+  if (process.env.NODE_ENV !== 'production') {
+    console.error(err.stack);
+  } else {
+    console.error(`[${req.method}] ${req.originalUrl} - ${err.message}`);
+  }
+
+  res.status(status).json({
+    message:
+      process.env.NODE_ENV === 'production'
+        ? 'Internal server error'
+        : err.message
   });
 });
 
@@ -127,42 +163,24 @@ const server = app.listen(PORT, async () => {
   console.log(`Server started on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
 
   startCleanupTask();
-
   //cron job to prevent Render from going to sleep
-  const KEEP_ALIVE_URL = process.env.KEEP_ALIVE_URL;
-  const isProduction = process.env.NODE_ENV === 'production' ||process.env.RENDER;
-
-  if (KEEP_ALIVE_URL && isProduction) {
-    console.log(`[Keep-Alive] Initializing health pinger to ${KEEP_ALIVE_URL}...`);
-
-    const ping = () => {
-      const protocol = KEEP_ALIVE_URL.startsWith('https') ? https : http;
-
-      protocol.get(KEEP_ALIVE_URL, (res) => {
-        res.on('data', () => { });
-        res.on('end', () => {
-          if (res.statusCode === 200) {
-            console.log(`[Keep-Alive] Heartbeat success at ${new Date().toLocaleTimeString()}`);
-          } else {
-            console.warn(`[Keep-Alive] Heartbeat status: ${res.statusCode}`);
-          }
-        });
-      }).on('error', (err) => {
-        console.error('[Keep-Alive] Heartbeat failed:', err.message);
-      });
-    };
-
-    ping();
-    setInterval(ping, 5 * 60 * 1000);
-  } else {
-    console.log('[Keep-Alive] Self-pinging disabled (Local dev or missing URL).');
-  }
 });
 
 // Set a more aggressive timeout (30s) to handle slow clients or aborts gracefully
-server.setTimeout(30000, (socket) => {
+server.setTimeout(120000, (socket) => {
   console.warn('[Server] Connection timed out due to slow client or network issue.');
   socket.destroy();
+});
+
+
+//shutdown maintainer
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received');
+
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
 });
 
 module.exports = app;
