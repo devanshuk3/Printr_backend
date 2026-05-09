@@ -1,4 +1,5 @@
-const rateLimit = require('express-rate-limit');
+const rateLimit = require("express-rate-limit");
+const { ipKeyGenerator } = require("express-rate-limit");
 const slowDown = require('express-slow-down');
 
 /**
@@ -80,7 +81,7 @@ const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
 
-  keyGenerator: (req) => `ip:${req.ip}`,
+  keyGenerator: (req) => ipKeyGenerator(req),
 
   message: {
     message:
@@ -235,7 +236,7 @@ const healthLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
   max: 60,
 
-  keyGenerator: (req) => `ip:${req.ip}`,
+  keyGenerator: (req) => ipKeyGenerator(req),
 
   message: {
     message: 'Health endpoint rate limit exceeded.',
@@ -262,6 +263,20 @@ const apiSpeedLimiter = slowDown({
 });
 
 // ─────────────────────────────────────────────────────────────
+// QUEUE LIMITER
+// ─────────────────────────────────────────────────────────────
+
+const queueLimiter = rateLimit({
+  ...commonConfig,
+  windowMs: 1 * 60 * 1000,
+  max: 60,
+  keyGenerator: getClientIdentifier,
+  message: {
+    message: 'Too many queue requests. Please slow down.',
+  },
+});
+
+// ─────────────────────────────────────────────────────────────
 // EXPORTS
 // ─────────────────────────────────────────────────────────────
 
@@ -277,4 +292,5 @@ module.exports = {
   destructiveLimiter,
   healthLimiter,
   apiSpeedLimiter,
+  queueLimiter,
 };
