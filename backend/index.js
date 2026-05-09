@@ -108,6 +108,7 @@ app.get('/api/health', healthLimiter, (req, res) => {
 });
 
 // Global rate limiter
+app.set('trust proxy', 1);
 app.use(globalLimiter);
 app.use(apiSpeedLimiter);
 
