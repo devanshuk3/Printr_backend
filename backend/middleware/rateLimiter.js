@@ -2,24 +2,13 @@ const rateLimit = require("express-rate-limit");
 const { ipKeyGenerator } = require("express-rate-limit");
 const slowDown = require('express-slow-down');
 
-/**
- * IMPORTANT:
- * In your main server file add:
- *
- * app.set('trust proxy', 1);
- *
- * BEFORE applying rate limiters.
- *
- * Otherwise req.ip may fail correctly on Render/Reverse proxies.
- */
-
 // ─────────────────────────────────────────────────────────────
 // SAFE IP EXTRACTION
 // ─────────────────────────────────────────────────────────────
 
 const getClientIdentifier = (req) => {
   // Prefer authenticated user
-  if (req.user?.id) {
+  if (req.user?.id) { 
     return `user:${req.user.id}`;
   }
 

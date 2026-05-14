@@ -827,18 +827,20 @@ router.post('/delete', [auth, destructiveLimiter, validateBody(deleteOrderSchema
       return res.status(403).json({ message: "Access denied: This order does not belong to your account" });
     }
 
-    // Just change status so the order stays in queue for an hour (cleanup handles archiving later)
+    // Delete the order from the database
     await db.withTransaction(async (client) => {
-      await client.query("UPDATE orders SET status = 'cancelled', updated_at = NOW() WHERE id = $1", [id]);
-      // Also update uploaded_files status to sync with cleanup policy
-      await client.query(`
-        UPDATE uploaded_files 
-        SET status = 'cancelled' 
-        WHERE file_name = (SELECT file_name FROM orders WHERE id = $1)
-      `, [id]);
+      // Get file name for related cleanup if necessary
+      const orderInfo = await client.query("SELECT file_name FROM orders WHERE id = $1", [id]);
+      const fileName = orderInfo.rows[0]?.file_name;
+
+      await client.query("DELETE FROM orders WHERE id = $1", [id]);
+      
+      if (fileName) {
+        await client.query("DELETE FROM uploaded_files WHERE file_name = $1", [fileName]);
+      }
     });
 
-    logStatusChange(id, orderData.status, 'cancelled (stays in queue for 1h)');
+    logStatusChange(id, orderData.status, 'deleted');
 
     invalidateCache(orderData.vendor_id);
 

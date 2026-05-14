@@ -57,8 +57,8 @@ const allowedOrigins = new Set([
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow mobile apps, Postman, server requests
-    if (!origin) {
+    // Allow mobile apps, Postman, server requests, and Electron standalone apps
+    if (!origin || origin === 'null' || origin.startsWith('file://')) {
       return callback(null, true);
     }
 
