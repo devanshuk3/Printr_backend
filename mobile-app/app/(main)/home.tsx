@@ -519,7 +519,8 @@ export default function HomePage() {
         upiId: verifiedVendor?.upi_id || "",
         vendorName: verifiedVendor?.shop_name || verifiedVendor?.name || "Vendor",
         hasBw: verifiedVendor?.has_bw_printer?.toString(),
-        hasColor: verifiedVendor?.has_color_printer?.toString()
+        hasColor: verifiedVendor?.has_color_printer?.toString(),
+        paperSizes: verifiedVendor?.paper_sizes || ""
       },
     } as any);
   };

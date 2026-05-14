@@ -227,6 +227,7 @@ const PrintSettings = () => {
     vendorName,
     hasBw,
     hasColor,
+    paperSizes,
   } = useLocalSearchParams<{
     files: string;
     vendorId: string;
@@ -237,6 +238,7 @@ const PrintSettings = () => {
     vendorName: string;
     hasBw: string;
     hasColor: string;
+    paperSizes: string;
   }>();
   const initialFiles = files
     ? (JSON.parse(files) as Array<{
@@ -273,7 +275,16 @@ const PrintSettings = () => {
     customRange: "",
     doubleSided: "NO",
     binding: "None",
+    pageSize: "A4",
   });
+  const [vendorPaperSizes, setVendorPaperSizes] = useState<string[]>(
+    paperSizes
+      ? paperSizes
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0)
+      : [],
+  );
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [pendingAmount, setPendingAmount] = useState("0.00");
@@ -353,6 +364,10 @@ const PrintSettings = () => {
   }, [internalFiles]);
 
   useEffect(() => {
+    fetchVendorDetails();
+  }, [vendorId]);
+
+  useEffect(() => {
     if (formData.pageSelection === "All") {
       setTotalPages(fullDocPages);
     } else if (formData.pageSelection === "Custom") {
@@ -380,6 +395,7 @@ const PrintSettings = () => {
             pageSelection: formData.pageSelection,
             customRange: formData.customRange,
             binding: formData.binding,
+            pageSize: formData.pageSize,
           }),
         });
 
@@ -417,6 +433,7 @@ const PrintSettings = () => {
     formData.pageSelection,
     formData.customRange,
     formData.binding,
+    formData.pageSize,
     fullDocPages,
   ]);
 
@@ -492,6 +509,7 @@ const PrintSettings = () => {
             isColor: formData.colorMode === "Colored",
             pageCount: totalPages,
             orderId: allocatedOrderIds[0],
+            pageSize: formData.pageSize,
           }),
         });
 
@@ -570,6 +588,7 @@ const PrintSettings = () => {
           customRange: formData.customRange,
           doubleSided: formData.doubleSided,
           binding: formData.binding,
+          pageSize: formData.pageSize,
         };
 
         const jsonFileName = `job_preferences_${username}_${uploadTimeStr}.json`;
@@ -731,6 +750,18 @@ const PrintSettings = () => {
           name: data.name || vendorName || "Merchant",
         });
       }
+      if (data.paper_sizes) {
+        const sizes = data.paper_sizes
+          .split(",")
+          .map((s: string) => s.trim())
+          .filter((s: string) => s.length > 0);
+        setVendorPaperSizes(sizes);
+        if (sizes.length > 0 && !sizes.includes(formData.pageSize)) {
+          setFormData((prev) => ({ ...prev, pageSize: sizes[0] }));
+        }
+      } else {
+        setVendorPaperSizes(["A4"]); // Default fallback
+      }
     } catch (err) {
       console.error("Error fetching vendor:", err);
       // Fallback to params if fetch fails
@@ -818,6 +849,7 @@ const PrintSettings = () => {
           pageSelection: formData.pageSelection,
           customRange: formData.customRange,
           binding: formData.binding,
+          pageSize: formData.pageSize,
         }),
       });
 
@@ -857,6 +889,7 @@ const PrintSettings = () => {
               pageCount: totalPages || 1,
               totalAmount: priceData.totalAmount,
               isColor: formData.colorMode === "Colored",
+              pageSize: formData.pageSize,
             },
           ],
         }),
@@ -1006,6 +1039,9 @@ const PrintSettings = () => {
             </View>
           </View>
         </View>
+
+        {vendorPaperSizes.length > 0 &&
+          renderDropdown("Page Size", "pageSize", vendorPaperSizes)}
 
         {renderDropdown("Layout", "layout", ["Portrait", "Landscape"])}
 

@@ -72,6 +72,7 @@ const initDb = async () => {
       vendor_id VARCHAR(50) NOT NULL,
       file_name VARCHAR(255),
       status VARCHAR(50) DEFAULT 'pending',
+      page_size VARCHAR(50),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `;
@@ -193,8 +194,10 @@ const initDb = async () => {
       'ALTER TABLE orders ADD COLUMN IF NOT EXISTS total_amount DECIMAL(10, 2) DEFAULT 0.00',
       'ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50) DEFAULT \'Online\'',
       'ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status VARCHAR(50) DEFAULT \'pending\'',
+      'ALTER TABLE orders ADD COLUMN IF NOT EXISTS page_size VARCHAR(50)',
       'ALTER TABLE archived_orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50)',
       'ALTER TABLE archived_orders ADD COLUMN IF NOT EXISTS payment_status VARCHAR(50)',
+      'ALTER TABLE archived_orders ADD COLUMN IF NOT EXISTS page_size VARCHAR(50)',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false',
       'ALTER TABLE email_otps ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER DEFAULT 0',

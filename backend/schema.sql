@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS orders (
     is_color BOOLEAN,
     payment_method VARCHAR(50) DEFAULT 'Online',
     payment_status VARCHAR(50) DEFAULT 'pending',
+    page_size VARCHAR(50),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -74,6 +75,7 @@ CREATE TABLE IF NOT EXISTS archived_orders (
     is_color BOOLEAN,
     payment_method VARCHAR(50),
     payment_status VARCHAR(50),
+    page_size VARCHAR(50),
     created_at TIMESTAMP,
     archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

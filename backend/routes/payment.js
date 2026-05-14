@@ -72,7 +72,7 @@ router.post('/calculate', [
   auth,
   validateBody(calculatePaymentSchema),
 ], async (req, res) => {
-  const { vendorId, totalPages, copies, colorMode, doubleSided, pageSelection, customRange, binding } = req.body;
+  const { vendorId, totalPages, copies, colorMode, doubleSided, pageSelection, customRange, binding, pageSize } = req.body;
 
   try {
     // 1. Fetch vendor pricing from the database (authoritative source)

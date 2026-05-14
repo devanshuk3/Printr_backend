@@ -110,6 +110,7 @@ const vendorSettingsSchema = z.object({
   color_price_10_plus: nonNegativeFloat.optional(),
   hard_binding_price: nonNegativeFloat.optional(),
   spiral_binding_price: nonNegativeFloat.optional(),
+  paper_sizes: z.string().trim().max(255).optional(),
   upi_id: z.string().trim().max(255).optional(),
   auto_accept_jobs: z.boolean().optional(),
   enable_upi: z.boolean().optional(),
@@ -151,6 +152,7 @@ const uploadUrlSchema = z.object({
   orderId: positiveInt.optional(),
   isColor: z.boolean().optional(),
   pageCount: positiveInt.optional(),
+  pageSize: z.string().trim().max(50).optional(),
 });
 
 const orderBatchSchema = z.object({
@@ -161,6 +163,7 @@ const orderBatchSchema = z.object({
     pageCount: positiveInt.optional().default(1),
     totalAmount: nonNegativeFloat.optional().default(0),
     isColor: z.boolean().optional().default(false),
+    pageSize: z.string().trim().max(50).optional(),
   })).min(1, 'At least one file is required').max(20, 'Maximum 20 files per batch'),
 });
 
@@ -168,6 +171,7 @@ const patchOrderSchema = z.object({
   total_amount: nonNegativeFloat.optional(),
   is_color: z.boolean().optional(),
   page_count: positiveInt.optional(),
+  pageSize: z.string().trim().max(50).optional(),
   payment_method: z.enum(['Online', 'Cash on Delivery']).optional(),
   payment_status: z.enum(['pending', 'completed']).optional(),
 }).refine(data => Object.keys(data).some(k => data[k] !== undefined), {
@@ -214,6 +218,7 @@ const calculatePaymentSchema = z.object({
   doubleSided: z.enum(['YES', 'NO'], { errorMap: () => ({ message: 'Double sided must be "YES" or "NO"' }) }),
   pageSelection: z.enum(['All', 'Custom'], { errorMap: () => ({ message: 'Page selection must be "All" or "Custom"' }) }),
   customRange: pageRangeField,
+  pageSize: z.string().trim().max(50).optional(),
   binding: z.enum(['None', 'Spiral Binding', 'Hard Binding'], { errorMap: () => ({ message: 'Binding must be None, Spiral Binding, or Hard Binding' }) }).optional().default('None'),
 });
 

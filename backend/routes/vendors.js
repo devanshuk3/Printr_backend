@@ -61,8 +61,8 @@ router.post('/orders/batch', [auth, validateBody(orderBatchSchema)], async (req,
       const ids = [];
       for (const file of files) {
         const orderRes = await client.query(
-          'INSERT INTO orders (user_id, vendor_id, status, page_count, total_amount, is_color, payment_method, payment_status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id',
-          [req.user.id, sanitizedVendorId, 'pending', file.pageCount || 1, file.totalAmount || 0, file.isColor || false, paymentMethod || 'Online', paymentStatus || 'pending']
+          'INSERT INTO orders (user_id, vendor_id, status, page_count, total_amount, is_color, payment_method, payment_status, page_size) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id',
+          [req.user.id, sanitizedVendorId, 'pending', file.pageCount || 1, file.totalAmount || 0, file.isColor || false, paymentMethod || 'Online', paymentStatus || 'pending', file.pageSize]
         );
         const id = orderRes.rows[0].id;
         logStatusChange(id, 'none', 'pending');
@@ -86,7 +86,7 @@ router.get('/verify/:vendorId', [
   try {
     const normalizedVendorId = normalizeVendorId(vendorId);
     const result = await db.query(
-      'SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, phone, upi_id, pages_printed, platform_fee, has_bw_printer, has_color_printer FROM vendors WHERE vendor_id = $1',
+      'SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, phone, upi_id, pages_printed, platform_fee, has_bw_printer, has_color_printer, paper_sizes FROM vendors WHERE vendor_id = $1',
       [normalizedVendorId]
     );
 
@@ -103,7 +103,7 @@ router.get('/verify/:vendorId', [
 // Get all vendors (Only accessible by ADMINS)
 router.get('/all', [auth, checkRole(['admin'])], async (req, res) => {
   try {
-    const result = await db.query('SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, phone, upi_id, pages_printed, platform_fee, has_bw_printer, has_color_printer FROM vendors ORDER BY shop_name ASC');
+    const result = await db.query('SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, phone, upi_id, pages_printed, platform_fee, has_bw_printer, has_color_printer, paper_sizes FROM vendors ORDER BY shop_name ASC');
     res.json(result.rows);
   } catch (err) {
     handleError(res, err, "Fetching vendors failed");
@@ -235,7 +235,7 @@ router.post('/files/upload-url', [
   auth,
   validateBody(uploadUrlSchema),
 ], async (req, res) => {
-  const { vendorId, fileName, contentType, totalPages, totalAmount, isColor, pageCount, orderId: existingOrderId } = req.body;
+  const { vendorId, fileName, contentType, totalPages, totalAmount, isColor, pageCount, orderId: existingOrderId, pageSize } = req.body;
 
   try {
     // 0. Get user's username - with fallback if query/column fails
@@ -267,8 +267,8 @@ router.post('/files/upload-url', [
         }
 
         const orderRes = await client.query(
-          'INSERT INTO orders (user_id, vendor_id, status, page_count, total_amount, is_color) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-          [req.user.id, sanitizedVendorId, 'uploading', pageCount || 1, totalAmount || 0, isColor || false]
+          'INSERT INTO orders (user_id, vendor_id, status, page_count, total_amount, is_color, page_size) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
+          [req.user.id, sanitizedVendorId, 'uploading', pageCount || 1, totalAmount || 0, isColor || false, pageSize]
         );
         const id = orderRes.rows[0].id;
         logStatusChange(id, 'none', 'uploading');
@@ -402,7 +402,7 @@ router.get('/files/history', auth, async (req, res) => {
   try {
     const historyRes = await db.query(
       `SELECT * FROM (
-         SELECT o.file_name, o.created_at as uploaded_at, o.status, f.deleted_at, v.shop_name
+         SELECT o.file_name, o.created_at as uploaded_at, o.status, f.deleted_at, v.shop_name, o.page_size
          FROM orders o
          LEFT JOIN uploaded_files f ON o.file_name = f.file_name
          LEFT JOIN vendors v ON o.vendor_id = v.vendor_id
@@ -410,7 +410,7 @@ router.get('/files/history', auth, async (req, res) => {
          
          UNION ALL
          
-         SELECT a.file_name, a.created_at as uploaded_at, a.status, f.deleted_at, v.shop_name
+         SELECT a.file_name, a.created_at as uploaded_at, a.status, f.deleted_at, v.shop_name, a.page_size
          FROM archived_orders a
          LEFT JOIN uploaded_files f ON a.file_name = f.file_name
          LEFT JOIN vendors v ON a.vendor_id = v.vendor_id
@@ -676,6 +676,7 @@ router.get('/files', [auth, queueLimiter, validateQuery(queueQuerySchema)], asyn
         o.created_at,
         o.page_count,
         o.is_color,
+        o.page_size,
         o.total_amount,
         o.payment_method,
         o.payment_status,
@@ -858,7 +859,7 @@ router.patch('/orders/:id', [
   validateBody(patchOrderSchema)
 ], async (req, res) => {
   const { id } = req.params;
-  const { total_amount, is_color, page_count, payment_method, payment_status } = req.body;
+  const { total_amount, is_color, page_count, payment_method, payment_status, pageSize } = req.body;
   
   try {
     const updates = [];
@@ -884,6 +885,10 @@ router.patch('/orders/:id', [
     if (payment_status !== undefined) {
       updates.push(`payment_status = $${paramCounter++}`);
       values.push(payment_status);
+    }
+    if (pageSize !== undefined) {
+      updates.push(`page_size = $${paramCounter++}`);
+      values.push(pageSize);
     }
     
     if (updates.length === 0) return res.status(400).json({ message: "No fields to update" });
@@ -913,7 +918,7 @@ router.put('/settings', [
     color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus,
     hard_binding_price, spiral_binding_price,
     auto_accept_jobs, enable_upi, min_amount,
-    has_bw_printer, has_color_printer, bw_printer, color_printer
+    has_bw_printer, has_color_printer, bw_printer, color_printer, paper_sizes
   } = req.body;
 
   const vendorIdFromAuth = normalizeVendorId(req.user.vendor_id);
@@ -1008,6 +1013,10 @@ router.put('/settings', [
       updates.push(`color_printer = $${paramCounter++}`);
       values.push(req.body.color_printer);
     }
+    if (paper_sizes !== undefined) {
+      updates.push(`paper_sizes = $${paramCounter++}`);
+      values.push(paper_sizes);
+    }
 
     if (updates.length === 0) {
       return res.status(400).json({ message: "No settings provided to update" });
@@ -1041,7 +1050,7 @@ router.get('/settings/me', auth, async (req, res) => {
   const vendorIdFromAuth = normalizeVendorId(req.user.vendor_id);
   try {
     const result = await db.query(
-      'SELECT shop_name, bw_price, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, upi_id, auto_accept_jobs, enable_upi, min_amount, has_bw_printer, has_color_printer, bw_printer, color_printer FROM vendors WHERE vendor_id = $1',
+      'SELECT shop_name, bw_price, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, upi_id, auto_accept_jobs, enable_upi, min_amount, has_bw_printer, has_color_printer, bw_printer, color_printer, paper_sizes FROM vendors WHERE vendor_id = $1',
       [vendorIdFromAuth]
     );
 
@@ -1065,6 +1074,7 @@ router.get('/activity-log', auth, async (req, res) => {
           o.id, 
           o.status, 
           o.created_at,
+          o.page_size,
           u.full_name as customer_name
         FROM orders o
         LEFT JOIN users u ON o.user_id = u.id
@@ -1077,6 +1087,7 @@ router.get('/activity-log', auth, async (req, res) => {
           a.original_id as id, 
           a.status, 
           a.created_at,
+          a.page_size,
           u.full_name as customer_name
         FROM archived_orders a
         LEFT JOIN users u ON a.user_id = u.id
