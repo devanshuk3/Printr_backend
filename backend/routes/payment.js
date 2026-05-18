@@ -78,7 +78,7 @@ router.post('/calculate', [
     // 1. Fetch vendor pricing from the database (authoritative source)
     const normalizedVendorId = String(vendorId || '').trim().toLowerCase();
     const vendorRes = await db.query(
-      'SELECT bw_price, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, has_bw_printer, has_color_printer FROM vendors WHERE vendor_id = $1',
+      'SELECT bw_price, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, has_bw_printer, has_color_printer, a4_price, a3_price, letter_price, legal_price FROM vendors WHERE vendor_id = $1',
       [normalizedVendorId]
     );
 
@@ -121,6 +121,16 @@ router.post('/calculate', [
       else pricePerPage = parseFloat(vendor.bw_price) || 0;
     }
 
+    // Determine the paper size price
+    let paperSizePrice = 0;
+    if (pageSize) {
+      const sizeKey = String(pageSize).trim().toLowerCase();
+      if (sizeKey === 'a4') paperSizePrice = parseFloat(vendor.a4_price) || 0;
+      else if (sizeKey === 'a3') paperSizePrice = parseFloat(vendor.a3_price) || 0;
+      else if (sizeKey === 'letter') paperSizePrice = parseFloat(vendor.letter_price) || 0;
+      else if (sizeKey === 'legal') paperSizePrice = parseFloat(vendor.legal_price) || 0;
+    }
+
     // 5. Calculate sheets per copy (double-sided halves the sheet count)
     const sheetsPerCopy = doubleSided === 'YES'
       ? Math.ceil(effectivePages / 2)
@@ -134,7 +144,7 @@ router.post('/calculate', [
     }
 
     // 6. Calculate base printing cost (this is what the user pays)
-    const printingCost = (sheetsPerCopy * pricePerPage + bindingCost) * copies;
+    const printingCost = (sheetsPerCopy * (pricePerPage + paperSizePrice) + bindingCost) * copies;
 
     // 7. Platform fee is calculated on the vendor's revenue (not charged to user)
     const platformFee = printingCost * PLATFORM_FEE_PERCENT;
@@ -149,7 +159,8 @@ router.post('/calculate', [
       effectivePages,
       sheetsPerCopy,
       pricePerPage: parseFloat(pricePerPage.toFixed(2)),
-      bindingCost: parseFloat(bindingCost.toFixed(2))
+      bindingCost: parseFloat(bindingCost.toFixed(2)),
+      paperSizePrice: parseFloat(paperSizePrice.toFixed(2))
     });
 
   } catch (err) {

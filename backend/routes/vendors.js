@@ -86,7 +86,7 @@ router.get('/verify/:vendorId', [
   try {
     const normalizedVendorId = normalizeVendorId(vendorId);
     const result = await db.query(
-      'SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, phone, upi_id, pages_printed, platform_fee, has_bw_printer, has_color_printer, paper_sizes FROM vendors WHERE vendor_id = $1',
+      'SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, phone, upi_id, pages_printed, platform_fee, has_bw_printer, has_color_printer, paper_sizes, a4_price, a3_price, letter_price, legal_price FROM vendors WHERE vendor_id = $1',
       [normalizedVendorId]
     );
 
@@ -103,7 +103,7 @@ router.get('/verify/:vendorId', [
 // Get all vendors (Only accessible by ADMINS)
 router.get('/all', [auth, checkRole(['admin'])], async (req, res) => {
   try {
-    const result = await db.query('SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, phone, upi_id, pages_printed, platform_fee, has_bw_printer, has_color_printer, paper_sizes FROM vendors ORDER BY shop_name ASC');
+    const result = await db.query('SELECT vendor_id, shop_name as name, bw_price as price_per_page, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, phone, upi_id, pages_printed, platform_fee, has_bw_printer, has_color_printer, paper_sizes, a4_price, a3_price, letter_price, legal_price FROM vendors ORDER BY shop_name ASC');
     res.json(result.rows);
   } catch (err) {
     handleError(res, err, "Fetching vendors failed");
@@ -570,6 +570,10 @@ router.post('/register', [
       { col: 'hard_binding_price',  val: data.hard_binding_price || 0 },
       { col: 'spiral_binding_price',val: data.spiral_binding_price || 0 },
       { col: 'paper_sizes',       val: data.paper_sizes || null },
+      { col: 'a4_price',          val: data.a4_price || 0 },
+      { col: 'a3_price',          val: data.a3_price || 0 },
+      { col: 'letter_price',      val: data.letter_price || 0 },
+      { col: 'legal_price',       val: data.legal_price || 0 },
       { col: 'has_bw_printer',    val: data.has_bw_printer ?? true },
       { col: 'has_color_printer', val: data.has_color_printer ?? false },
     ];
@@ -918,7 +922,8 @@ router.put('/settings', [
     color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus,
     hard_binding_price, spiral_binding_price,
     auto_accept_jobs, enable_upi, min_amount,
-    has_bw_printer, has_color_printer, bw_printer, color_printer, paper_sizes
+    has_bw_printer, has_color_printer, bw_printer, color_printer, paper_sizes,
+    a4_price, a3_price, letter_price, legal_price
   } = req.body;
 
   const vendorIdFromAuth = normalizeVendorId(req.user.vendor_id);
@@ -1017,6 +1022,22 @@ router.put('/settings', [
       updates.push(`paper_sizes = $${paramCounter++}`);
       values.push(paper_sizes);
     }
+    if (a4_price !== undefined) {
+      updates.push(`a4_price = $${paramCounter++}`);
+      values.push(a4_price);
+    }
+    if (a3_price !== undefined) {
+      updates.push(`a3_price = $${paramCounter++}`);
+      values.push(a3_price);
+    }
+    if (letter_price !== undefined) {
+      updates.push(`letter_price = $${paramCounter++}`);
+      values.push(letter_price);
+    }
+    if (legal_price !== undefined) {
+      updates.push(`legal_price = $${paramCounter++}`);
+      values.push(legal_price);
+    }
 
     if (updates.length === 0) {
       return res.status(400).json({ message: "No settings provided to update" });
@@ -1050,7 +1071,7 @@ router.get('/settings/me', auth, async (req, res) => {
   const vendorIdFromAuth = normalizeVendorId(req.user.vendor_id);
   try {
     const result = await db.query(
-      'SELECT shop_name, bw_price, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, upi_id, auto_accept_jobs, enable_upi, min_amount, has_bw_printer, has_color_printer, bw_printer, color_printer, paper_sizes FROM vendors WHERE vendor_id = $1',
+      'SELECT shop_name, bw_price, color_price, bw_price_single, bw_price_2_to_5, bw_price_6_to_9, bw_price_10_plus, color_price_single, color_price_2_to_5, color_price_6_to_9, color_price_10_plus, hard_binding_price, spiral_binding_price, upi_id, auto_accept_jobs, enable_upi, min_amount, has_bw_printer, has_color_printer, bw_printer, color_printer, paper_sizes, a4_price, a3_price, letter_price, legal_price FROM vendors WHERE vendor_id = $1',
       [vendorIdFromAuth]
     );
 
