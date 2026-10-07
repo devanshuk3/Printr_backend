@@ -44,7 +44,7 @@ router.post('/register', [
     let newUser;
     try {
       newUser = await db.query(
-        'INSERT INTO users (full_name, email, username, password, is_verified) VALUES ($1, $2, $3, $4, false) RETURNING id, full_name, email, username',
+        'INSERT INTO users (full_name, email, username, password, is_verified) VALUES ($1, $2, $3, $4, true) RETURNING id, full_name, email, username, role',
         [fullName, normalizedEmail, normalizedUsername, hashedPassword]
       );
     } catch (insertErr) {
@@ -57,26 +57,24 @@ router.post('/register', [
       return handleError(res, insertErr, "Registration failed");
     }
 
-    const userId = newUser.rows[0].id;
+    const user = newUser.rows[0];
 
-    const otp = generateOTP();
-    const otpHash = hashToken(otp);
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-    await db.query(
-      'INSERT INTO email_otps (user_id, otp_hash, expires_at) VALUES ($1, $2, $3)',
-      [userId, otpHash, expiresAt]
+    const token = jwt.sign(
+      { id: user.id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
     );
-
-    // Send OTP email (fire-and-forget with error logging)
-    sendOTPEmail(email, otp).catch(err => {
-      console.error('[Register] Failed to send OTP email:', err.message);
-    });
 
     res.json({
       success: true,
-      userId,
-      message: 'Account created. Check your email for the verification code.'
+      token,
+      user: {
+        id: user.id,
+        fullName: user.full_name,
+        email: user.email,
+        username: user.username
+      },
+      message: 'Account created successfully.'
     });
 
   } catch (err) {
@@ -129,13 +127,13 @@ router.post('/login', [
     // ── Reset failed attempts on successful password match ──
     await resetUserFailedAttempts(normalizedIdentifier);
 
-    // Block login if email not verified
-    if (!user.is_verified) {
-      return res.status(403).json({ 
-        error: 'Please verify your email before logging in', 
-        userId: user.id 
-      });
-    }
+    // OTP verification temporarily bypassed
+    // if (!user.is_verified) {
+    //   return res.status(403).json({ 
+    //     error: 'Please verify your email before logging in', 
+    //     userId: user.id 
+    //   });
+    // }
 
     const token = jwt.sign(
       { id: user.id, role: user.role },

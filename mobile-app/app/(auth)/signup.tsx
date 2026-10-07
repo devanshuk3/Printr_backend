@@ -148,9 +148,15 @@ export default function SignUp() {
                }
 
                // Successfully initiated registration
-               // Now show OTP modal
-               setPendingUserId(data.userId);
-               setShowOTP(true);
+               if (data.token && data.user) {
+                    setSharedFullName(data.user.fullName);
+                    await saveAuthData(data.token, data.user);
+                    router.replace("/home");
+               } else {
+                    // Fallback to OTP modal if backend hasn't updated yet
+                    setPendingUserId(data.userId);
+                    setShowOTP(true);
+               }
           } catch (error: any) {
                console.error("Signup error:", error);
                Alert.alert("Registration Failed", error.message || "Please check your details and try again.");
