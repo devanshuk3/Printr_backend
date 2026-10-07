@@ -138,7 +138,13 @@ const LoginPage = () => {
       }
 
       if (!response.ok) {
-        throw new Error(data.message || "Invalid credentials");
+        // If the email is unverified, the backend returns data.error and userId
+        if (response.status === 403 && data.error === 'Please verify your email before logging in') {
+          // We could open an OTP modal here if we had one in login, 
+          // but for now we must at least show the correct message
+          throw new Error(data.error);
+        }
+        throw new Error(data.message || data.error || "Invalid credentials");
       }
 
       // Successfully logged in
