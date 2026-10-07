@@ -242,11 +242,11 @@ const PrintSettings = () => {
   }>();
   const initialFiles = files
     ? (JSON.parse(files) as Array<{
-        uri: string;
-        name: string;
-        mimeType: string;
-        needsConversion?: boolean;
-      }>)
+      uri: string;
+      name: string;
+      mimeType: string;
+      needsConversion?: boolean;
+    }>)
     : [];
   const [internalFiles, setInternalFiles] = useState<
     Array<{
@@ -280,9 +280,9 @@ const PrintSettings = () => {
   const [vendorPaperSizes, setVendorPaperSizes] = useState<string[]>(
     paperSizes
       ? paperSizes
-          .split(",")
-          .map((s) => s.trim())
-          .filter((s) => s.length > 0)
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
       : [],
   );
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -451,7 +451,7 @@ const PrintSettings = () => {
             style={[
               styles.optionButton,
               formData[field as keyof typeof formData] === option &&
-                styles.optionButtonSelected,
+              styles.optionButtonSelected,
             ]}
             onPress={() => handleChange(field, option)}
           >
@@ -459,7 +459,7 @@ const PrintSettings = () => {
               style={[
                 styles.optionText,
                 formData[field as keyof typeof formData] === option &&
-                  styles.optionTextSelected,
+                styles.optionTextSelected,
               ]}
             >
               {option}
@@ -1204,7 +1204,7 @@ const PrintSettings = () => {
                 style={[
                   styles.methodBtn,
                   paymentMethod === "Cash on Delivery" &&
-                    styles.methodBtnActive,
+                  styles.methodBtnActive,
                 ]}
                 onPress={async () => {
                   setPaymentMethod("Cash on Delivery");
@@ -1235,7 +1235,7 @@ const PrintSettings = () => {
                   style={[
                     styles.methodBtnText,
                     paymentMethod === "Cash on Delivery" &&
-                      styles.methodBtnTextActive,
+                    styles.methodBtnTextActive,
                   ]}
                 >
                   Pay at Shop
@@ -1565,44 +1565,61 @@ const styles = StyleSheet.create({
   },
   pickerContainer: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   optionButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: "#e1e4e8",
-    backgroundColor: "#ffffff",
+    borderColor: "#e2e8f0",
+    backgroundColor: "#f8fafc",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
+    elevation: 1,
   },
-  optionButtonSelected: { backgroundColor: "#1271dd", borderColor: "#1271dd" },
-  optionText: { color: "#2e3563", fontWeight: "600", fontSize: 14 },
-  optionTextSelected: { color: "#ffffff" },
+  optionButtonSelected: { 
+    backgroundColor: "#eff6ff", 
+    borderColor: "#3b82f6",
+    shadowColor: "#3b82f6",
+    shadowOpacity: 0.15,
+  },
+  optionText: { color: "#64748b", fontWeight: "600", fontSize: 15 },
+  optionTextSelected: { color: "#1d4ed8", fontWeight: "700" },
   copiesSection: { flexDirection: "row", alignItems: "center", gap: 16 },
   copiesInput: {
     width: 80,
-    height: 52,
+    height: 56,
     borderWidth: 1.5,
-    borderColor: "#e1e4e8",
-    borderRadius: 12,
+    borderColor: "#e2e8f0",
+    borderRadius: 14,
     paddingHorizontal: 16,
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#2e3563",
-    backgroundColor: "#fcfdfe",
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1e293b",
+    backgroundColor: "#f8fafc",
+    textAlign: "center",
   },
   stepperContainer: {
     flexDirection: "row",
     borderWidth: 1.5,
-    borderColor: "#e1e4e8",
-    borderRadius: 12,
+    borderColor: "#e2e8f0",
+    borderRadius: 14,
     backgroundColor: "#ffffff",
     overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
+    elevation: 1,
   },
   stepperButton: {
-    width: 52,
-    height: 52,
+    width: 56,
+    height: 56,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#ffffff",
   },
-  stepperDivider: { width: 1.5, height: "100%", backgroundColor: "#e1e4e8" },
+  stepperDivider: { width: 1.5, height: "100%", backgroundColor: "#e2e8f0" },
   textInput: {
     marginTop: 12,
     height: 52,
@@ -1623,17 +1640,20 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   radio: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     borderWidth: 2,
-    borderColor: "#e1e4e8",
+    borderColor: "#cbd5e1",
     backgroundColor: "#ffffff",
     alignItems: "center",
     justifyContent: "center",
   },
-  radioSelected: { borderColor: "#1271dd", borderWidth: 6 },
-  radioLabel: { fontSize: 15, fontWeight: "500", color: "#2e3563" },
+  radioSelected: { 
+    borderColor: "#3b82f6", 
+    borderWidth: 7 
+  },
+  radioLabel: { fontSize: 16, fontWeight: "600", color: "#1e293b" },
   buttonRow: { flexDirection: "row", gap: 16, marginTop: 16 },
   actionButton: {
     flex: 1,

@@ -71,6 +71,8 @@ export default function HomePage() {
   const [profileSeedOffset, setProfileSeedOffset] = useState(0);
   const [history, setHistory] = useState<any[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [selectedOrderDetails, setSelectedOrderDetails] = useState<any>(null);
+  const [isOrderModalVisible, setIsOrderModalVisible] = useState(false);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -118,8 +120,8 @@ export default function HomePage() {
   const calculatePageCount = async (files: any[]) => {
     let total = 0;
     for (const file of files) {
-       // Files now come with pageCount pre-calculated from handleUpload
-       total += (file.pageCount || 1);
+      // Files now come with pageCount pre-calculated from handleUpload
+      total += (file.pageCount || 1);
     }
     return total;
   };
@@ -343,10 +345,10 @@ export default function HomePage() {
 
   const handleUpload = async () => {
     if (isPicking.current || isUploading) return;
-    
+
     isPicking.current = true;
     setIsUploading(true);
-    
+
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: [
@@ -383,8 +385,8 @@ export default function HomePage() {
           return;
         }
 
-          isPicking.current = false; // We can allow another pick after the first one is selected
-          // No need to set isUploading(true) here anymore as we did it at the start
+        isPicking.current = false; // We can allow another pick after the first one is selected
+        // No need to set isUploading(true) here anymore as we did it at the start
         const newFilesList = await Promise.all(filteredAssets.map(async (asset) => {
           let fileName = asset.name;
           let fileUri = asset.uri;
@@ -674,9 +676,12 @@ export default function HomePage() {
         />
         <View style={styles.header}>
           <View style={styles.headerTop}>
-            <Text style={styles.welcomeText}>
-              {"Welcome,\n" + sharedFullName}
-            </Text>
+            <View style={styles.welcomeTextContainer}>
+              <Text style={styles.welcomeGreeting}>Welcome back,</Text>
+              <Text style={styles.welcomeName} numberOfLines={2}>
+                {sharedFullName}
+              </Text>
+            </View>
             <View style={styles.headerIcons}>
               {userData?.username === "admin" && (
                 <TouchableOpacity
@@ -742,8 +747,8 @@ export default function HomePage() {
             <View style={styles.vendorInfoCard}>
               <View style={styles.vendorInfoHeader}>
                 <View style={{ flex: 1 }}>
-                   <Text style={styles.vendorInfoName}>{verifiedVendor.name}</Text>
-                   <Text style={styles.vendorInfoPhone}>{verifiedVendor.phone}</Text>
+                  <Text style={styles.vendorInfoName}>{verifiedVendor.name}</Text>
+                  <Text style={styles.vendorInfoPhone}>{verifiedVendor.phone}</Text>
                 </View>
                 <View style={styles.vendorPriceBadgeContainer}>
                   {verifiedVendor.has_bw_printer !== false && (
@@ -851,10 +856,11 @@ export default function HomePage() {
 
         {/* ── Print History ── */}
         <View style={styles.section}>
-          <TouchableOpacity onPress={fetchHistory} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <TouchableOpacity onPress={fetchHistory} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
             <Text style={[styles.sectionTitleLeft, { marginBottom: 0 }]}>Print history</Text>
             {isLoadingHistory && <RefreshCcw size={16} color="#1271dd" />}
           </TouchableOpacity>
+          <Text style={styles.historyHelperText}>Press and hold for 3 seconds to see complete details</Text>
 
           {history.length === 0 ? (
             <View style={styles.emptyHistory}>
@@ -862,8 +868,14 @@ export default function HomePage() {
             </View>
           ) : (
             history.map((item: any, index: number) => (
-              <View
+              <TouchableOpacity
                 key={`print-history-${index}`}
+                delayLongPress={3000}
+                onLongPress={() => {
+                  setSelectedOrderDetails(item);
+                  setIsOrderModalVisible(true);
+                }}
+                activeOpacity={0.8}
                 style={[
                   styles.historyCard,
                   index < history.length - 1 && styles.historyCardGap,
@@ -880,9 +892,9 @@ export default function HomePage() {
                     {item.fileName}
                   </Text>
                   <View style={styles.historyMeta}>
-                    <Text style={styles.historySenderText}>{item.vendorName}</Text>
+                    <Text style={styles.historySenderText} numberOfLines={1} ellipsizeMode="tail">{item.vendorName}</Text>
                     <View style={styles.dotSeparator} />
-                    <Text style={styles.historyMetaText}>{item.time} | {item.date}</Text>
+                    <Text style={styles.historyMetaText} numberOfLines={1} ellipsizeMode="tail">{item.time} | {item.date}</Text>
                   </View>
                 </View>
 
@@ -913,10 +925,71 @@ export default function HomePage() {
                     {item.status === "failed" && <XCircle size={16} color="#e31e1e" strokeWidth={2.5} />}
                   </View>
                 </View>
-              </View>
+              </TouchableOpacity>
             ))
           )}
         </View>
+
+        {/* ── Order Details Modal ── */}
+        <Modal
+          animationType="fade"
+          transparent={true}
+          visible={isOrderModalVisible}
+          onRequestClose={() => setIsOrderModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.orderDetailsModal}>
+              <View style={styles.orderDetailsHeader}>
+                <Text style={styles.orderDetailsTitle}>Order Details</Text>
+                <TouchableOpacity onPress={() => setIsOrderModalVisible(false)} style={styles.closeModalBtn}>
+                  <XCircle size={24} color="#979797" />
+                </TouchableOpacity>
+              </View>
+
+              {selectedOrderDetails && (
+                <View style={styles.orderDetailsContent}>
+                  <View style={styles.orderDetailRow}>
+                    <Text style={styles.orderDetailLabel}>File Name:</Text>
+                    <Text style={styles.orderDetailValue}>{selectedOrderDetails.fileName}</Text>
+                  </View>
+                  <View style={styles.orderDetailRow}>
+                    <Text style={styles.orderDetailLabel}>Vendor:</Text>
+                    <Text style={styles.orderDetailValue}>{selectedOrderDetails.vendorName}</Text>
+                  </View>
+                  <View style={styles.orderDetailRow}>
+                    <Text style={styles.orderDetailLabel}>Date & Time:</Text>
+                    <Text style={styles.orderDetailValue}>{selectedOrderDetails.date} at {selectedOrderDetails.time}</Text>
+                  </View>
+                  <View style={styles.orderDetailRow}>
+                    <Text style={styles.orderDetailLabel}>Status:</Text>
+                    <View style={styles.orderDetailStatusBadge}>
+                      <Text style={[
+                        styles.orderDetailStatusText,
+                        selectedOrderDetails.status === "completed" && { color: "#16a34a" },
+                        selectedOrderDetails.status === "in_queue" && { color: "#ea580c" },
+                        selectedOrderDetails.status === "failed" && { color: "#dc2626" },
+                      ]}>
+                        {selectedOrderDetails.status.toUpperCase()}
+                      </Text>
+                    </View>
+                  </View>
+                  {selectedOrderDetails.totalAmount && (
+                    <View style={styles.orderDetailRow}>
+                      <Text style={styles.orderDetailLabel}>Cost:</Text>
+                      <Text style={styles.orderDetailValue}>₹{selectedOrderDetails.totalAmount}</Text>
+                    </View>
+                  )}
+                  {selectedOrderDetails.pages && (
+                    <View style={styles.orderDetailRow}>
+                      <Text style={styles.orderDetailLabel}>Pages printed:</Text>
+                      <Text style={styles.orderDetailValue}>{selectedOrderDetails.pages}</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
+          </View>
+        </Modal>
       </ScrollView>
     </SafeAreaView>
   );
@@ -937,9 +1010,9 @@ const styles = StyleSheet.create({
   headerTop: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
+    alignItems: "center",
     marginTop: 24,
-    marginBottom: 8,
+    marginBottom: 16,
   },
   headerIcons: {
     flexDirection: "row",
@@ -956,13 +1029,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e1e4e8",
   },
-  welcomeText: {
+  welcomeTextContainer: {
     flex: 1,
-    fontWeight: "700",
-    color: "#2e3563",
-    fontSize: 32,
-    lineHeight: 40,
     paddingRight: 10,
+    justifyContent: "center",
+  },
+  welcomeGreeting: {
+    fontSize: 15,
+    color: "#64748b",
+    fontWeight: "600",
+    marginBottom: 4,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  welcomeName: {
+    fontWeight: "800",
+    color: "#1e293b",
+    fontSize: 32,
+    lineHeight: 38,
   },
   section: {
     marginBottom: 40,
@@ -1202,6 +1286,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
+  historyHelperText: {
+    color: "#94a3b8",
+    fontSize: 12,
+    fontWeight: "500",
+    marginBottom: 16,
+    fontStyle: "italic",
+  },
   historyCard: {
     backgroundColor: "#ffffff",
     borderRadius: 20,
@@ -1248,6 +1339,7 @@ const styles = StyleSheet.create({
   historyInfo: {
     flex: 1,
     justifyContent: "center",
+    overflow: "hidden",
   },
   historyFileName: {
     color: "#2e3563",
@@ -1264,6 +1356,7 @@ const styles = StyleSheet.create({
     color: "#1271dd",
     fontSize: 13,
     fontWeight: "600",
+    flexShrink: 1,
   },
   dotSeparator: {
     width: 3,
@@ -1275,6 +1368,7 @@ const styles = StyleSheet.create({
     color: "#64748b",
     fontSize: 12,
     fontWeight: "500",
+    flexShrink: 0,
   },
   historyActions: {
     flexDirection: "row",
@@ -1373,6 +1467,67 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 15,
     elevation: 10,
+  },
+  orderDetailsModal: {
+    width: "90%",
+    maxWidth: 400,
+    backgroundColor: "#ffffff",
+    borderRadius: 24,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 15,
+    elevation: 10,
+  },
+  orderDetailsHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  orderDetailsTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#2e3563",
+  },
+  orderDetailsContent: {
+    padding: 24,
+    gap: 16,
+  },
+  orderDetailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f8fafc",
+  },
+  orderDetailLabel: {
+    fontSize: 14,
+    color: "#64748b",
+    fontWeight: "600",
+    flex: 1,
+  },
+  orderDetailValue: {
+    fontSize: 15,
+    color: "#1e293b",
+    fontWeight: "700",
+    flex: 2,
+    textAlign: "right",
+  },
+  orderDetailStatusBadge: {
+    backgroundColor: "#f8fafc",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  orderDetailStatusText: {
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.5,
   },
   profileModalHeader: {
     flexDirection: "row",
