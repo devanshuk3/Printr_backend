@@ -8,7 +8,7 @@ const slowDown = require('express-slow-down');
 
 const getClientIdentifier = (req) => {
   // Prefer authenticated user
-  if (req.user?.id) { 
+  if (req.user?.id) {
     return `user:${req.user.id}`;
   }
 
