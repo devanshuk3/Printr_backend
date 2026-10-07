@@ -13,12 +13,12 @@ const getClientIdentifier = (req) => {
   }
 
   // Safe IP from Express trust proxy
-  return `ip:${req.ip}`;
+  return `ip:${ipKeyGenerator(req)}`;
 };
 
 // Hybrid key for sensitive routes
 const hybridKeyGenerator = (req) => {
-  const ip = req.ip || 'unknown';
+  const ip = ipKeyGenerator(req) || 'unknown';
 
   if (req.user?.id) {
     return `user:${req.user.id}:ip:${ip}`;
@@ -92,7 +92,7 @@ const otpLimiter = rateLimit({
 
   keyGenerator: (req) => {
     const email = req.body?.email || 'unknown';
-    return `otp:${email}:${req.ip}`;
+    return `otp:${email}:${ipKeyGenerator(req)}`;
   },
 
   message: {
